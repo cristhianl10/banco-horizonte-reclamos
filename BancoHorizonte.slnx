@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/BancoHorizonte.Api/BancoHorizonte.Api.csproj" />
+  </Folder>
+</Solution>
