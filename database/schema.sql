@@ -57,7 +57,8 @@ create table subcategorias_reclamo (
     categoria_id smallint not null references categorias_reclamo(id) on delete restrict,
     nombre varchar(100) not null,
     activo boolean not null default true,
-    unique (categoria_id, nombre)
+    unique (categoria_id, nombre),
+    unique (id, categoria_id)
 );
 
 create table estados_reclamo (
@@ -114,7 +115,7 @@ create table reclamos (
     cliente_id uuid not null references clientes(id) on delete restrict,
     canal_recepcion_id smallint not null references canales_recepcion(id) on delete restrict,
     categoria_id smallint not null references categorias_reclamo(id) on delete restrict,
-    subcategoria_id smallint references subcategorias_reclamo(id) on delete restrict,
+    subcategoria_id smallint,
     descripcion text not null check (char_length(trim(descripcion)) >= 20),
     impacto smallint not null check (impacto between 1 and 3),
     urgencia smallint not null check (urgencia between 1 and 3),
@@ -129,6 +130,7 @@ create table reclamos (
     creado_por_usuario_id uuid not null references usuarios(id) on delete restrict,
     creado_en timestamptz not null default now(),
     actualizado_en timestamptz not null default now(),
+    foreign key (subcategoria_id, categoria_id) references subcategorias_reclamo(id, categoria_id) on delete restrict,
     check (fecha_limite_sla > fecha_recepcion),
     check (fecha_resolucion is null or fecha_resolucion >= fecha_recepcion)
 );
@@ -181,6 +183,93 @@ create index ix_reclamos_bandeja on reclamos(estado_id, prioridad_id, fecha_limi
 create index ix_reclamos_responsable on reclamos(responsable_actual_id, estado_id);
 create index ix_reclamos_cliente on reclamos(cliente_id, fecha_recepcion desc);
 create index ix_historial_reclamo on historial_reclamo(reclamo_id, ocurrido_en desc);
+
+-- Catálogos iniciales idempotentes.
+insert into roles(nombre, descripcion) values
+('Operador', 'Registra reclamos recibidos'), ('Analista', 'Atiende reclamos asignados'),
+('Supervisor', 'Supervisa, asigna y consulta indicadores'), ('Administrador', 'Configura la plataforma')
+on conflict (nombre) do nothing;
+
+insert into canales_recepcion(nombre) values ('Correo electrónico'), ('Llamada'), ('Formulario web'), ('Sucursal'), ('Aplicación móvil')
+on conflict (nombre) do nothing;
+
+insert into categorias_reclamo(nombre, descripcion) values
+('Transferencias', 'Transferencias nacionales e interbancarias'), ('Tarjetas', 'Tarjetas de crédito y débito'),
+('Cobros', 'Débitos y cobros no reconocidos'), ('Canales digitales', 'Web y aplicación móvil'),
+('Atención al cliente', 'Experiencia y atención recibida')
+on conflict (nombre) do nothing;
+
+insert into subcategorias_reclamo(categoria_id, nombre)
+select c.id, x.nombre from categorias_reclamo c join (values
+('Transferencias', 'Transferencia no recibida'), ('Transferencias', 'Transferencia duplicada'),
+('Tarjetas', 'Tarjeta bloqueada'), ('Tarjetas', 'Consumo no reconocido'),
+('Cobros', 'Cobro duplicado'), ('Cobros', 'Débito no autorizado'),
+('Canales digitales', 'No puede iniciar sesión'), ('Canales digitales', 'Operación no disponible'),
+('Atención al cliente', 'Demora en atención'), ('Atención al cliente', 'Información incorrecta')) x(categoria, nombre)
+on c.nombre = x.categoria on conflict (categoria_id, nombre) do nothing;
+
+insert into estados_reclamo(nombre, es_final, orden) values
+('Nuevo', false, 1), ('Asignado', false, 2), ('En análisis', false, 3),
+('En espera de cliente', false, 4), ('Resuelto', false, 5), ('Cerrado', true, 6), ('Cancelado', true, 7)
+on conflict (nombre) do nothing;
+
+insert into transiciones_estado(estado_origen_id, estado_destino_id)
+select o.id, d.id from estados_reclamo o join (values
+('Nuevo','Asignado'), ('Nuevo','Cancelado'), ('Asignado','En análisis'), ('Asignado','Cancelado'),
+('En análisis','En espera de cliente'), ('En análisis','Resuelto'), ('En espera de cliente','En análisis'),
+('En espera de cliente','Cancelado'), ('Resuelto','Cerrado'), ('Resuelto','En análisis')) x(origen,destino)
+on o.nombre=x.origen join estados_reclamo d on d.nombre=x.destino
+on conflict do nothing;
+
+insert into niveles_prioridad(nombre, puntaje_minimo, orden, color_hex) values
+('Baja', 0, 1, '#3A7D65'), ('Media', 3, 2, '#2E6F95'), ('Alta', 5, 3, '#D97706'), ('Crítica', 7, 4, '#C53B3B')
+on conflict (nombre) do nothing;
+
+insert into politicas_sla(nombre, prioridad_id, horas_resolucion, umbral_alerta_minutos)
+select 'SLA ' || p.nombre, p.id,
+case p.nombre when 'Crítica' then 4 when 'Alta' then 8 when 'Media' then 24 else 72 end,
+case p.nombre when 'Crítica' then 60 when 'Alta' then 120 when 'Media' then 240 else 720 end
+from niveles_prioridad p on conflict (nombre) do nothing;
+
+create or replace function public.handle_new_auth_user()
+returns trigger language plpgsql security definer set search_path = ''
+as $$
+declare default_role_id smallint;
+begin
+  insert into public.usuarios(id, nombres, apellidos, correo)
+  values (new.id,
+    coalesce(nullif(trim(new.raw_user_meta_data ->> 'first_names'), ''), 'Usuario'),
+    coalesce(nullif(trim(new.raw_user_meta_data ->> 'last_names'), ''), 'Banco Horizonte'), new.email)
+  on conflict (id) do nothing;
+  select id into default_role_id from public.roles where nombre = 'Operador';
+  insert into public.usuario_roles(usuario_id, rol_id) values (new.id, default_role_id)
+  on conflict do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created after insert on auth.users
+for each row execute procedure public.handle_new_auth_user();
+
+-- El navegador solo usa Auth; las tablas quedan cerradas al API automático de Supabase.
+alter table roles enable row level security;
+alter table usuarios enable row level security;
+alter table usuario_roles enable row level security;
+alter table clientes enable row level security;
+alter table canales_recepcion enable row level security;
+alter table categorias_reclamo enable row level security;
+alter table subcategorias_reclamo enable row level security;
+alter table estados_reclamo enable row level security;
+alter table transiciones_estado enable row level security;
+alter table niveles_prioridad enable row level security;
+alter table politicas_sla enable row level security;
+alter table reglas_prioridad enable row level security;
+alter table reclamos enable row level security;
+alter table asignaciones_reclamo enable row level security;
+alter table observaciones_reclamo enable row level security;
+alter table historial_reclamo enable row level security;
+alter table adjuntos_reclamo enable row level security;
 
 -- La API debe validar que subcategoria_id pertenezca a categoria_id,
 -- elegir una política SLA vigente y registrar auditoría en toda mutación.

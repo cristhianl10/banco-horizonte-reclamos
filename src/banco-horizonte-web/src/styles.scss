@@ -1,1 +1,25 @@
-/* You can add global styles to this file, and also import other style files */
+:root {
+  --ink: #0d292b;
+  --canvas: #f2f4f0;
+  --surface: #ffffff;
+  --signal: #4ddeae;
+  --signal-dark: #167b61;
+  --muted: #71807c;
+  --line: #d9e0dc;
+  --danger: #c53b3b;
+  --warning: #d47b12;
+  --positive: #23815f;
+  --sans: "Aptos", "Segoe UI", Arial, sans-serif;
+  --mono: "Cascadia Mono", "IBM Plex Mono", Consolas, monospace;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html { min-width: 320px; background: var(--canvas); }
+body { margin: 0; color: var(--ink); background: var(--canvas); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+button, input, select, textarea { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+:focus-visible { outline: 3px solid rgba(22,123,97,.35); outline-offset: 3px; }
+.skip-link { position: fixed; left: 12px; top: -60px; z-index: 100; padding: 10px 14px; background: white; color: var(--ink); border: 2px solid var(--signal-dark); transition: top .15s ease; }
+.skip-link:focus { top: 12px; }
+::selection { background: var(--signal); color: var(--ink); }
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}

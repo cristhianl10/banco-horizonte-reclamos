@@ -1,0 +1,18 @@
+import { inject } from '@angular/core';
+import { CanActivateFn, Router } from '@angular/router';
+import { AuthService } from './auth.service';
+
+export const authGuard: CanActivateFn = () => {
+  const auth = inject(AuthService);
+  return auth.isAuthenticated() ? true : inject(Router).createUrlTree(['/login']);
+};
+
+export const supervisorGuard: CanActivateFn = () => {
+  const auth = inject(AuthService);
+  return auth.hasAnyRole('Supervisor', 'Administrador') ? true : inject(Router).createUrlTree(['/reclamos']);
+};
+
+export const operatorGuard: CanActivateFn = () => {
+  const auth = inject(AuthService);
+  return auth.hasAnyRole('Operador', 'Supervisor', 'Administrador') ? true : inject(Router).createUrlTree(['/reclamos']);
+};
