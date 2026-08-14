@@ -2,6 +2,7 @@ using BancoHorizonte.Api.Contracts;
 using BancoHorizonte.Api.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 namespace BancoHorizonte.Api.Controllers;
@@ -9,6 +10,15 @@ namespace BancoHorizonte.Api.Controllers;
 [ApiController, Route("api/auth"), Authorize]
 public sealed class AuthController(AppDbContext db) : ControllerBase
 {
+    [HttpPost("registration-status"), AllowAnonymous, EnableRateLimiting("registration-check")]
+    public async Task<ActionResult<EmailRegistrationStatusResponse>> RegistrationStatus(
+        EmailRegistrationStatusRequest request, CancellationToken ct)
+    {
+        var normalizedEmail = request.Email.Trim().ToLowerInvariant();
+        var registered = await db.Users.AsNoTracking().AnyAsync(x => x.Email == normalizedEmail, ct);
+        return Ok(new EmailRegistrationStatusResponse(registered));
+    }
+
     [HttpGet("me")]
     public async Task<ActionResult<CurrentUserResponse>> Me(CancellationToken ct)
     {

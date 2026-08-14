@@ -1,35 +1,74 @@
 using System.ComponentModel.DataAnnotations;
+using System.Globalization;
+using System.Text;
+using System.Text.RegularExpressions;
 
 namespace BancoHorizonte.Api.Contracts;
 
 public sealed record CustomerRequest(
-    [property: Required, StringLength(20)] string DocumentType,
-    [property: Required, StringLength(30, MinimumLength = 5)] string DocumentNumber,
-    [property: Required, StringLength(100, MinimumLength = 2)] string FirstNames,
-    [property: Required, StringLength(100, MinimumLength = 2)] string LastNames,
-    [property: EmailAddress, StringLength(254)] string? Email,
-    [property: Phone, StringLength(30)] string? Phone);
+    [param: Required(ErrorMessage = "Selecciona un tipo de documento."), StringLength(20)] string DocumentType,
+    [param: Required(ErrorMessage = "Ingresa el número de documento."), StringLength(20, MinimumLength = 5)] string DocumentNumber,
+    [param: Required, StringLength(100, MinimumLength = 2)] string FirstNames,
+    [param: Required, StringLength(100, MinimumLength = 2)] string LastNames,
+    [param: EmailAddress(ErrorMessage = "Ingresa un correo electrónico válido."), StringLength(254)] string? Email,
+    [param: RegularExpression(@"^\d{10}$", ErrorMessage = "El teléfono debe tener exactamente 10 dígitos."), StringLength(10)] string? Phone)
+    : IValidatableObject
+{
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        var type = RemoveDiacritics(DocumentType).Trim().ToUpperInvariant();
+        var number = DocumentNumber.Trim();
+
+        switch (type)
+        {
+            case "CEDULA" when !Regex.IsMatch(number, @"^\d{10}$"):
+                yield return new ValidationResult(
+                    "La cédula debe tener exactamente 10 dígitos.", [nameof(DocumentNumber)]);
+                break;
+            case "RUC" when !Regex.IsMatch(number, @"^\d{13}$"):
+                yield return new ValidationResult(
+                    "El RUC debe tener exactamente 13 dígitos.", [nameof(DocumentNumber)]);
+                break;
+            case "PASAPORTE" when !Regex.IsMatch(number, @"^[A-Za-z0-9]{5,20}$"):
+                yield return new ValidationResult(
+                    "El pasaporte debe tener entre 5 y 20 caracteres, solo letras y números.", [nameof(DocumentNumber)]);
+                break;
+            case not ("CEDULA" or "RUC" or "PASAPORTE"):
+                yield return new ValidationResult(
+                    "Selecciona Cédula, RUC o Pasaporte como tipo de documento.", [nameof(DocumentType)]);
+                break;
+        }
+    }
+
+    private static string RemoveDiacritics(string value)
+    {
+        var normalized = value.Normalize(NormalizationForm.FormD);
+        return new string(normalized.Where(character =>
+            CharUnicodeInfo.GetUnicodeCategory(character) != UnicodeCategory.NonSpacingMark).ToArray());
+    }
+}
 
 public sealed record CreateComplaintRequest(
-    [property: Required] CustomerRequest Customer,
-    [property: Range(1, short.MaxValue)] short ReceptionChannelId,
-    [property: Range(1, short.MaxValue)] short CategoryId,
+    [param: Required] CustomerRequest Customer,
+    [param: Range(1, short.MaxValue)] short ReceptionChannelId,
+    [param: Range(1, short.MaxValue)] short CategoryId,
     short? SubcategoryId,
-    [property: Required, StringLength(4000, MinimumLength = 20)] string Description,
-    [property: Range(1, 3)] short Impact,
-    [property: Range(1, 3)] short Urgency,
+    [param: Required, StringLength(4000, MinimumLength = 20)] string Description,
+    [param: Range(typeof(decimal), "0", "9999999999.99")] decimal? AffectedAmount,
+    bool DigitalChannelUnavailable,
+    DateTimeOffset? ReceivedAt,
     bool ConfirmPossibleDuplicate = false);
 
 public sealed record ChangeStatusRequest(
-    [property: Range(1, short.MaxValue)] short StatusId,
-    [property: StringLength(1000)] string? Observation);
+    [param: Range(1, short.MaxValue)] short StatusId,
+    [param: Required, StringLength(1000, MinimumLength = 3)] string Observation);
 
 public sealed record AssignComplaintRequest(
-    [property: Required] Guid AnalystId,
-    [property: StringLength(500)] string? Reason);
+    [param: Required] Guid AnalystId,
+    [param: StringLength(500)] string? Reason);
 
 public sealed record AddObservationRequest(
-    [property: Required, StringLength(2000, MinimumLength = 3)] string Content,
+    [param: Required, StringLength(2000, MinimumLength = 3)] string Content,
     bool IsInternal = true);
 
 public sealed record ComplaintQuery(
@@ -38,6 +77,7 @@ public sealed record ComplaintQuery(
     short? StatusId = null,
     short? PriorityId = null,
     short? CategoryId = null,
+    short? ChannelId = null,
     Guid? AssigneeId = null,
     string? Search = null,
     string? Sla = null);
@@ -52,10 +92,10 @@ public sealed record TimelineItem(string Type, string Description, string Actor,
 
 public sealed record ComplaintDetail(
     Guid Id, string Code, string Customer, string Document, string? Email, string? Phone,
-    string Channel, string Category, string? Subcategory, string Description, short Impact,
-    short Urgency, string Status, short StatusId, string Priority, short PriorityScore,
+    string Channel, string Category, string? Subcategory, string Description, decimal? AffectedAmount,
+    bool DigitalChannelUnavailable, string Status, short StatusId, string Priority, short PriorityScore,
     string? Assignee, Guid? AssigneeId, DateTimeOffset ReceivedAt, DateTimeOffset SlaDeadline,
-    string SlaState, IReadOnlyList<TimelineItem> Timeline);
+    string SlaState, IReadOnlyList<PriorityRuleMatch> PriorityRules, IReadOnlyList<TimelineItem> Timeline);
 
 public sealed record CatalogItem(short Id, string Name);
 public sealed record SubcategoryItem(short Id, string Name, short CategoryId);
@@ -69,15 +109,19 @@ public sealed record CatalogResponse(
     IReadOnlyList<AnalystItem> Analysts);
 
 public sealed record DashboardSummary(
-    int Open, int Critical, int NearDeadline, int Overdue, decimal SlaCompliance,
-    IReadOnlyList<MetricSlice> ByStatus, IReadOnlyList<MetricSlice> ByCategory,
+    int Total, int Open, int Resolved, int Critical, int NearDeadline, int Overdue, decimal SlaCompliance,
+    IReadOnlyList<MetricSlice> ByStatus, IReadOnlyList<MetricSlice> ByPriority, IReadOnlyList<MetricSlice> ByCategory,
     IReadOnlyList<AnalystLoad> AnalystLoads, IReadOnlyList<ComplaintListItem> ImmediateAttention);
 
 public sealed record MetricSlice(string Label, int Value);
 public sealed record AnalystLoad(string Analyst, int ActiveCases);
 public sealed record CurrentUserResponse(Guid Id, string Name, string Email, IReadOnlyList<string> Roles);
+public sealed record EmailRegistrationStatusRequest(
+    [param: Required, EmailAddress, StringLength(254)] string Email);
+public sealed record EmailRegistrationStatusResponse(bool Registered);
 
-public sealed record PriorityCalculation(short Score, string Level);
+public sealed record PriorityRuleMatch(string Rule, short Points);
+public sealed record PriorityCalculation(short Score, string Level, int SlaHours, IReadOnlyList<PriorityRuleMatch> MatchedRules);
 
 public sealed class DomainRuleException(string message) : Exception(message);
 public sealed class ResourceNotFoundException(string message) : Exception(message);

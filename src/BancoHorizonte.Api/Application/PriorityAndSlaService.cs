@@ -1,32 +1,68 @@
+using System.Globalization;
+using System.Text;
 using BancoHorizonte.Api.Contracts;
 using BancoHorizonte.Api.Domain;
 
 namespace BancoHorizonte.Api.Application;
 
+public sealed record PriorityInput(
+    string Category,
+    string? Subcategory,
+    decimal? AffectedAmount,
+    bool DigitalChannelUnavailable,
+    DateTimeOffset ReceivedAt,
+    DateTimeOffset EvaluatedAt,
+    bool IsOpen = true);
+
 public interface IPriorityAndSlaService
 {
-    PriorityCalculation Calculate(short impact, short urgency, string category, bool isRepeatCase);
+    PriorityCalculation Calculate(PriorityInput input);
     SlaPolicy SelectPolicy(IEnumerable<SlaPolicy> policies, short priorityId, short categoryId, DateTimeOffset now);
     DateTimeOffset CalculateDeadline(DateTimeOffset receivedAt, int resolutionHours);
-    string GetSlaState(DateTimeOffset deadline, DateTimeOffset now, int alertThresholdMinutes = 240);
+    DateTimeOffset CalculateAlertAt(DateTimeOffset receivedAt, DateTimeOffset deadline);
+    string GetSlaState(DateTimeOffset deadline, DateTimeOffset alertAt, DateTimeOffset now);
 }
 
 public sealed class PriorityAndSlaService : IPriorityAndSlaService
 {
-    private static readonly string[] SensitiveCategories = ["transfer", "tarjeta", "cobro"];
-
-    public PriorityCalculation Calculate(short impact, short urgency, string category, bool isRepeatCase)
+    public PriorityCalculation Calculate(PriorityInput input)
     {
-        if (impact is < 1 or > 3) throw new DomainRuleException("El impacto debe estar entre 1 y 3.");
-        if (urgency is < 1 or > 3) throw new DomainRuleException("La urgencia debe estar entre 1 y 3.");
-        if (string.IsNullOrWhiteSpace(category)) throw new DomainRuleException("La categoría es obligatoria.");
+        if (string.IsNullOrWhiteSpace(input.Category))
+            throw new DomainRuleException("La categoría es obligatoria.");
+        if (input.AffectedAmount < 0)
+            throw new DomainRuleException("El monto afectado no puede ser negativo.");
+        if (input.ReceivedAt > input.EvaluatedAt.AddMinutes(5))
+            throw new DomainRuleException("La fecha de recepción no puede estar en el futuro.");
 
-        var score = (short)(((impact - 1) * 2) + ((urgency - 1) * 2));
-        if (SensitiveCategories.Any(x => category.Contains(x, StringComparison.OrdinalIgnoreCase))) score++;
-        if (isRepeatCase) score += 2;
+        var text = Normalize($"{input.Category} {input.Subcategory}");
+        var rules = new List<PriorityRuleMatch>();
 
-        var level = score switch { >= 7 => "Crítica", >= 5 => "Alta", >= 3 => "Media", _ => "Baja" };
-        return new PriorityCalculation(score, level);
+        if (ContainsAny(text, "transaccion no reconocida", "compra no reconocida", "consumo no reconocido", "debito no autorizado"))
+            rules.Add(new("Transacción o compra no reconocida", 4));
+
+        var transferNotCredited = text.Contains("transferencia") && ContainsAny(text, "no acreditada", "no recibida", "no reflejada");
+        var digitalAccessBlocked = text.Contains("canales digitales") && ContainsAny(text, "acceso bloqueado", "canal bloqueado", "no puede iniciar sesion");
+        if (transferNotCredited || digitalAccessBlocked)
+            rules.Add(new("Transferencia no acreditada o acceso/canal bloqueado", 3));
+
+        if (input.AffectedAmount >= 500m)
+            rules.Add(new("Monto afectado igual o superior a USD 500", 3));
+
+        if (input.DigitalChannelUnavailable)
+            rules.Add(new("Canal digital completamente indisponible", 2));
+
+        if (input.IsOpen && input.EvaluatedAt - input.ReceivedAt > TimeSpan.FromHours(24))
+            rules.Add(new("Reclamo abierto por más de 24 horas", 2));
+
+        var score = (short)rules.Sum(x => x.Points);
+        var (level, hours) = score switch
+        {
+            >= 7 => ("Crítica", 2),
+            >= 5 => ("Alta", 6),
+            >= 3 => ("Media", 12),
+            _ => ("Baja", 24)
+        };
+        return new PriorityCalculation(score, level, hours, rules);
     }
 
     public SlaPolicy SelectPolicy(IEnumerable<SlaPolicy> policies, short priorityId, short categoryId, DateTimeOffset now)
@@ -44,10 +80,26 @@ public sealed class PriorityAndSlaService : IPriorityAndSlaService
         return receivedAt.AddHours(resolutionHours);
     }
 
-    public string GetSlaState(DateTimeOffset deadline, DateTimeOffset now, int alertThresholdMinutes = 240)
+    public DateTimeOffset CalculateAlertAt(DateTimeOffset receivedAt, DateTimeOffset deadline)
     {
-        if (alertThresholdMinutes <= 0) throw new DomainRuleException("El umbral de alerta debe ser mayor a cero.");
+        if (deadline <= receivedAt) throw new DomainRuleException("La fecha límite debe ser posterior a la recepción.");
+        return receivedAt.AddTicks((deadline - receivedAt).Ticks * 3 / 4);
+    }
+
+    public string GetSlaState(DateTimeOffset deadline, DateTimeOffset alertAt, DateTimeOffset now)
+    {
+        if (alertAt >= deadline) throw new DomainRuleException("La alerta SLA debe ser anterior a la fecha límite.");
         if (deadline <= now) return "Vencido";
-        return deadline <= now.AddMinutes(alertThresholdMinutes) ? "Próximo" : "En tiempo";
+        return alertAt <= now ? "Próximo" : "En tiempo";
+    }
+
+    private static bool ContainsAny(string source, params string[] values) => values.Any(source.Contains);
+
+    private static string Normalize(string value)
+    {
+        var normalized = value.Normalize(NormalizationForm.FormD);
+        var withoutMarks = new string(normalized.Where(character =>
+            CharUnicodeInfo.GetUnicodeCategory(character) != UnicodeCategory.NonSpacingMark).ToArray());
+        return withoutMarks.Normalize(NormalizationForm.FormC).ToLowerInvariant();
     }
 }

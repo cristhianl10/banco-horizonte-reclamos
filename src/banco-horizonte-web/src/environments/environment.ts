@@ -1,7 +1,7 @@
 export const environment = {
   production: false,
-  demoMode: true,
+  demoMode: false,
   apiUrl: 'http://localhost:5207/api',
-  supabaseUrl: '',
-  supabasePublishableKey: '',
+  supabaseUrl: 'https://oigcjnymanhasdhrktpq.supabase.co',
+  supabasePublishableKey: 'sb_publishable_rGzM07Svs2esjJRCdKRSJQ_MwfhFCRF',
 };

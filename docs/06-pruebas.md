@@ -1,78 +1,54 @@
-# Estrategia y resultados de pruebas
+# Estrategia de pruebas
 
 ## Comandos
 
 ```powershell
-dotnet test BancoHorizonte.slnx --collect:"XPlat Code Coverage"
+dotnet test BancoHorizonte.slnx -c Release
 cd .\src\banco-horizonte-web
-npm test -- --watch=false --browsers=ChromeHeadless
+npm test -- --watch=false
 npm run build
 ```
 
-## Cobertura funcional automatizada
+## Backend
 
-### Motor de prioridad y SLA
+### Prioridad y SLA
 
-- Baja, media, alta y crítica en sus límites.
-- Bonificación de categorías sensibles.
-- Penalización por reincidencia.
-- Impacto y urgencia fuera del rango 1–3.
-- Categoría vacía.
-- Política específica por categoría y política genérica de respaldo.
-- Políticas vencidas, futuras e inactivas.
-- Fecha límite calculada y horas inválidas.
-- SLA vencido, próximo y en tiempo.
-- Umbral de alerta inválido.
+- Cada una de las cinco reglas por separado.
+- Suma de varias condiciones, incluido el caso crítico de compra no reconocida por USD 780.
+- Umbrales Baja, Media, Alta y Crítica con SLA de 24, 12, 6 y 2 horas.
+- Regla de antigüedad solo para reclamos abiertos por más de 24 horas.
+- Monto negativo y recepción futura rechazados.
+- Alerta exactamente al 75 % del plazo.
+- Estados `En tiempo`, `Próximo` y `Vencido`.
 
-### Contratos de entrada
+### Flujo de reclamos
 
-- Solicitud completa válida.
-- Tipo y número de documento obligatorios.
-- Longitudes mínimas de documento, nombres y apellidos.
-- Formato de correo.
-- Canal y categoría obligatorios.
-- Descripción entre 20 y 4000 caracteres.
-- Impacto y urgencia dentro del rango.
-- Observación mínima.
-- Responsable obligatorio y motivo máximo.
+- Normalización de cliente y generación de código.
+- Posible duplicado, confirmación y ausencia de penalizaciones no definidas por el reto.
+- Categoría/subcategoría coherentes.
+- Recálculo por antigüedad sin duplicar eventos.
+- Transiciones válidas, saltos inválidos y prohibición de reapertura.
+- Observación obligatoria al cambiar estado.
+- Asignación y reasignación sin modificar el estado.
+- Rechazo de responsables sin rol de Analista o Supervisor.
 
-### Casos de uso
+### Contratos
 
-- Registro con normalización de documento y correo.
-- Código único, prioridad e SLA calculados.
-- Advertencia de duplicados recientes sin crear otro registro.
-- Confirmación explícita de duplicado y penalización de reincidencia.
-- Rechazo de subcategoría ajena a la categoría.
-- Rechazo de canal inactivo.
-- Cambio de estado válido con observación y auditoría.
-- Rechazo de transición no configurada.
-- Rechazo de modificación de caso finalizado.
-- Asignación y reasignación con un solo responsable activo.
-- Rechazo de operador como analista.
-- Rechazo de asignación repetida.
-- Rechazo de observación sobre reclamo inexistente.
+- Cédula y teléfono de 10 dígitos exactos.
+- RUC de 13 dígitos y pasaporte alfanumérico.
+- Correo válido, descripción mínima, identificadores de catálogo y monto no negativo.
 
-### Angular
+## Frontend
 
-- Login rechaza correo incorrecto y contraseña corta.
-- Login acepta credenciales con formato válido.
-- Registro inicia inválido cuando faltan campos obligatorios.
-- Registro rechaza descripción corta, correo inválido y severidad fuera de rango.
-- Registro acepta un reclamo completo.
+- Formulario inicialmente inválido.
+- Validaciones de cliente, contacto, descripción y monto.
+- Formulario válido sin campos subjetivos de impacto o urgencia.
+- Registro y acceso con mensajes comprensibles y control para mostrar/ocultar contraseña.
 
-## Validación visual y de interacción
+## Resultado de la verificación actual
 
-Se verificó con navegador real:
-
-- Dashboard de escritorio.
-- Dashboard responsive en 390 × 844.
-- Login.
-- Registro completo de reclamo.
-- Resultado con código generado.
-- Apertura de expediente.
-- Asignación de responsable.
-- Cambio de estado y observación.
-- Actualización de la línea de tiempo.
-- Ausencia de errores o advertencias en consola.
-
-Resultado actual: **49 pruebas .NET y 5 pruebas Angular aprobadas**.
+- Compilación ASP.NET Core Release: correcta.
+- Compilación Angular de producción: correcta.
+- Angular: 8 pruebas correctas.
+- Supabase: migración ejecutada, diez casos demo cargados y health check `ready/connected` correcto.
+- El runner xUnit fue bloqueado por la política Windows Application Control del equipo (`0x800711C7`) después de compilar correctamente el proyecto de pruebas. Los casos quedan compilados y listos para ejecutarse en un entorno sin esa restricción.

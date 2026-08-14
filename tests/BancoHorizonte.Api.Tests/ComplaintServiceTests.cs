@@ -13,16 +13,17 @@ public sealed class ComplaintServiceTests
     private static readonly DateTimeOffset Now = DateTimeOffset.Parse("2026-08-11T12:00:00Z");
 
     [Fact]
-    public async Task Create_NormalizesCustomerAndCalculatesPriorityAndSla()
+    public async Task Create_NormalizesCustomerAndCalculatesCriticalCase()
     {
         await using var db = CreateDb(); await SeedAsync(db);
-        var service = CreateService(db);
-        var result = await service.CreateAsync(ValidRequest(), ActorId, default);
+        var result = await CreateService(db).CreateAsync(ValidRequest(), ActorId, default);
 
         Assert.NotNull(result.Complaint);
         Assert.StartsWith("BH-20260811-", result.Complaint.Code);
-        Assert.Equal(9, result.Complaint.PriorityScore);
-        Assert.Equal(Now.AddHours(4), result.Complaint.SlaDeadline);
+        Assert.Equal(7, result.Complaint.PriorityScore);
+        Assert.Equal(Now.AddHours(2), result.Complaint.SlaDeadline);
+        Assert.Equal(Now.AddMinutes(90), result.Complaint.SlaAlertAt);
+        Assert.Equal(2, ComplaintService.ReadPriorityRules(result.Complaint.PriorityBreakdown).Count);
         var customer = await db.Customers.SingleAsync();
         Assert.Equal("0912345678", customer.DocumentNumber);
         Assert.Equal("ana@example.com", customer.Email);
@@ -41,32 +42,44 @@ public sealed class ComplaintServiceTests
     }
 
     [Fact]
-    public async Task Create_AllowsConfirmedDuplicateAndAddsRepeatPenalty()
+    public async Task Create_AllowsConfirmedDuplicateWithoutInventedRepeatPenalty()
     {
         await using var db = CreateDb(); await SeedAsync(db); var service = CreateService(db);
         await service.CreateAsync(ValidRequest(), ActorId, default);
         var result = await service.CreateAsync(ValidRequest() with { ConfirmPossibleDuplicate = true }, ActorId, default);
         Assert.NotNull(result.Complaint);
-        Assert.Equal(11, result.Complaint.PriorityScore);
+        Assert.Equal(7, result.Complaint.PriorityScore);
         Assert.Equal(2, await db.Complaints.CountAsync());
     }
 
     [Fact]
     public async Task Create_RejectsSubcategoryFromAnotherCategory()
     {
-        await using var db = CreateDb(); await SeedAsync(db); var service = CreateService(db);
-        await Assert.ThrowsAsync<DomainRuleException>(() => service.CreateAsync(ValidRequest() with { SubcategoryId = 2 }, ActorId, default));
+        await using var db = CreateDb(); await SeedAsync(db);
+        await Assert.ThrowsAsync<DomainRuleException>(() => CreateService(db).CreateAsync(ValidRequest() with { SubcategoryId = 1 }, ActorId, default));
     }
 
     [Fact]
-    public async Task Create_RejectsInactiveChannel()
+    public async Task Create_RejectsFutureReception()
     {
-        await using var db = CreateDb(); await SeedAsync(db); db.ReceptionChannels.Single().IsActive = false; await db.SaveChangesAsync();
-        await Assert.ThrowsAsync<DomainRuleException>(() => CreateService(db).CreateAsync(ValidRequest(), ActorId, default));
+        await using var db = CreateDb(); await SeedAsync(db);
+        await Assert.ThrowsAsync<DomainRuleException>(() => CreateService(db).CreateAsync(ValidRequest() with { ReceivedAt = Now.AddHours(1) }, ActorId, default));
     }
 
     [Fact]
-    public async Task ChangeStatus_PersistsValidTransitionObservationAndHistory()
+    public async Task RefreshOpenPriorities_AddsAgeRuleOnce()
+    {
+        await using var db = CreateDb(); await SeedAsync(db);
+        var complaint = SeedComplaint(db, receivedAt: Now.AddHours(-25)); await db.SaveChangesAsync();
+        var service = CreateService(db);
+        await service.RefreshOpenPrioritiesAsync(ActorId, default);
+        await service.RefreshOpenPrioritiesAsync(ActorId, default);
+        Assert.Equal(2, complaint.PriorityScore);
+        Assert.Single(db.History.Where(x => x.EventType == "PRIORIDAD_RECALCULADA"));
+    }
+
+    [Fact]
+    public async Task ChangeStatus_PersistsRequiredObservationAndHistory()
     {
         await using var db = CreateDb(); await SeedAsync(db); var service = CreateService(db);
         var created = (await service.CreateAsync(ValidRequest(), ActorId, default)).Complaint!;
@@ -77,29 +90,33 @@ public sealed class ComplaintServiceTests
     }
 
     [Fact]
-    public async Task ChangeStatus_RejectsTransitionNotConfigured()
+    public async Task ChangeStatus_RejectsEmptyObservation()
     {
         await using var db = CreateDb(); await SeedAsync(db); var service = CreateService(db);
         var created = (await service.CreateAsync(ValidRequest(), ActorId, default)).Complaint!;
-        await Assert.ThrowsAsync<DomainRuleException>(() => service.ChangeStatusAsync(created.Id, new ChangeStatusRequest(5, null), ActorId, default));
+        await Assert.ThrowsAsync<DomainRuleException>(() => service.ChangeStatusAsync(created.Id, new ChangeStatusRequest(2, " "), ActorId, default));
     }
 
     [Fact]
-    public async Task ChangeStatus_RejectsFinalComplaint()
+    public async Task ChangeStatus_RejectsInvalidTransitionAndFinalReopening()
     {
-        await using var db = CreateDb(); await SeedAsync(db); var complaint = SeedComplaint(db, statusId: 6); await db.SaveChangesAsync();
-        await Assert.ThrowsAsync<DomainRuleException>(() => CreateService(db).ChangeStatusAsync(complaint.Id, new ChangeStatusRequest(3, null), ActorId, default));
+        await using var db = CreateDb(); await SeedAsync(db); var service = CreateService(db);
+        var created = (await service.CreateAsync(ValidRequest(), ActorId, default)).Complaint!;
+        await Assert.ThrowsAsync<DomainRuleException>(() => service.ChangeStatusAsync(created.Id, new ChangeStatusRequest(3, "Salto inválido"), ActorId, default));
+        var final = SeedComplaint(db, statusId: 3); await db.SaveChangesAsync();
+        await Assert.ThrowsAsync<DomainRuleException>(() => service.ChangeStatusAsync(final.Id, new ChangeStatusRequest(2, "Reabrir"), ActorId, default));
     }
 
     [Fact]
-    public async Task Assign_CreatesSingleActiveAssignmentAndReassigns()
+    public async Task Assign_CreatesSingleActiveAssignmentWithoutChangingStatus()
     {
         await using var db = CreateDb(); await SeedAsync(db); var service = CreateService(db);
         var complaint = SeedComplaint(db); await db.SaveChangesAsync();
         await service.AssignAsync(complaint.Id, new AssignComplaintRequest(AnalystId, "Carga inicial"), ActorId, default);
-        var secondAnalyst = AddUser(db, Guid.NewGuid(), "Segundo", "Analista", "segundo@demo.com", "Analista"); await db.SaveChangesAsync();
-        await service.AssignAsync(complaint.Id, new AssignComplaintRequest(secondAnalyst.Id, "Balance de carga"), ActorId, default);
-        Assert.Equal(secondAnalyst.Id, complaint.CurrentAssigneeId);
+        var second = AddUser(db, Guid.NewGuid(), "Segundo", "Analista", "segundo@demo.com", "Analista"); await db.SaveChangesAsync();
+        await service.AssignAsync(complaint.Id, new AssignComplaintRequest(second.Id, "Balance de carga"), ActorId, default);
+        Assert.Equal(second.Id, complaint.CurrentAssigneeId);
+        Assert.Equal(1, complaint.StatusId);
         Assert.Single(db.Assignments.Where(x => x.EndedAt == null));
         Assert.Single(db.Assignments.Where(x => x.EndedAt != null));
     }
@@ -108,29 +125,20 @@ public sealed class ComplaintServiceTests
     public async Task Assign_RejectsOperatorAsAssignee()
     {
         await using var db = CreateDb(); await SeedAsync(db); var complaint = SeedComplaint(db); await db.SaveChangesAsync();
-        await Assert.ThrowsAsync<DomainRuleException>(() => CreateService(db).AssignAsync(complaint.Id, new AssignComplaintRequest(ActorId, null), ActorId, default));
-    }
-
-    [Fact]
-    public async Task Assign_RejectsSameActiveAssignee()
-    {
-        await using var db = CreateDb(); await SeedAsync(db); var service = CreateService(db); var complaint = SeedComplaint(db); await db.SaveChangesAsync();
-        await service.AssignAsync(complaint.Id, new AssignComplaintRequest(AnalystId, null), ActorId, default);
-        await Assert.ThrowsAsync<DomainRuleException>(() => service.AssignAsync(complaint.Id, new AssignComplaintRequest(AnalystId, null), ActorId, default));
+        await Assert.ThrowsAsync<DomainRuleException>(() => CreateService(db).AssignAsync(complaint.Id,
+            new AssignComplaintRequest(ActorId, null), ActorId, default));
     }
 
     [Fact]
     public async Task AddObservation_RejectsUnknownComplaint()
     {
         await using var db = CreateDb(); await SeedAsync(db);
-        await Assert.ThrowsAsync<ResourceNotFoundException>(() => CreateService(db).AddObservationAsync(Guid.NewGuid(), new AddObservationRequest("Comentario válido"), ActorId, default));
+        await Assert.ThrowsAsync<ResourceNotFoundException>(() => CreateService(db).AddObservationAsync(Guid.NewGuid(),
+            new AddObservationRequest("Comentario válido"), ActorId, default));
     }
 
-    private static AppDbContext CreateDb()
-    {
-        var options = new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
-        return new AppDbContext(options);
-    }
+    private static AppDbContext CreateDb() => new(new DbContextOptionsBuilder<AppDbContext>()
+        .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
 
     private static ComplaintService CreateService(AppDbContext db) => new(db, new PriorityAndSlaService(), new FixedTimeProvider(Now));
 
@@ -141,27 +149,48 @@ public sealed class ComplaintServiceTests
         AddUser(db, AnalystId, "Ana", "Analista", "analista@demo.com", "Analista");
         db.ReceptionChannels.Add(new ReceptionChannel { Id = 1, Name = "Llamada" });
         db.Categories.AddRange(new ComplaintCategory { Id = 1, Name = "Transferencias" }, new ComplaintCategory { Id = 2, Name = "Tarjetas" });
-        db.Subcategories.AddRange(new ComplaintSubcategory { Id = 1, CategoryId = 1, Name = "No recibida" }, new ComplaintSubcategory { Id = 2, CategoryId = 2, Name = "Bloqueada" });
-        db.Statuses.AddRange(new ComplaintStatus { Id = 1, Name = "Nuevo", Order = 1 }, new ComplaintStatus { Id = 2, Name = "Asignado", Order = 2 }, new ComplaintStatus { Id = 3, Name = "En análisis", Order = 3 }, new ComplaintStatus { Id = 5, Name = "Resuelto", Order = 5 }, new ComplaintStatus { Id = 6, Name = "Cerrado", IsFinal = true, Order = 6 });
-        db.StatusTransitions.AddRange(new StatusTransition { FromStatusId = 1, ToStatusId = 2 }, new StatusTransition { FromStatusId = 2, ToStatusId = 3 }, new StatusTransition { FromStatusId = 3, ToStatusId = 5 });
-        db.Priorities.AddRange(new PriorityLevel { Id = 1, Name = "Baja", MinimumScore = 0, Order = 1, ColorHex = "#000000" }, new PriorityLevel { Id = 2, Name = "Media", MinimumScore = 3, Order = 2, ColorHex = "#000000" }, new PriorityLevel { Id = 3, Name = "Alta", MinimumScore = 5, Order = 3, ColorHex = "#000000" }, new PriorityLevel { Id = 4, Name = "Crítica", MinimumScore = 7, Order = 4, ColorHex = "#000000" });
-        db.SlaPolicies.AddRange(new SlaPolicy { Id = Guid.NewGuid(), Name = "Baja", PriorityId = 1, ResolutionHours = 72, AlertThresholdMinutes = 720, ValidFrom = Now.AddDays(-1) }, new SlaPolicy { Id = Guid.NewGuid(), Name = "Media", PriorityId = 2, ResolutionHours = 24, AlertThresholdMinutes = 240, ValidFrom = Now.AddDays(-1) }, new SlaPolicy { Id = Guid.NewGuid(), Name = "Alta", PriorityId = 3, ResolutionHours = 8, AlertThresholdMinutes = 120, ValidFrom = Now.AddDays(-1) }, new SlaPolicy { Id = Guid.NewGuid(), Name = "Crítica", PriorityId = 4, ResolutionHours = 4, AlertThresholdMinutes = 60, ValidFrom = Now.AddDays(-1) });
+        db.Subcategories.AddRange(new ComplaintSubcategory { Id = 1, CategoryId = 1, Name = "Transferencia no acreditada" },
+            new ComplaintSubcategory { Id = 2, CategoryId = 2, Name = "Compra no reconocida" });
+        db.Statuses.AddRange(new ComplaintStatus { Id = 1, Name = "Nuevo", Order = 1 },
+            new ComplaintStatus { Id = 2, Name = "En análisis", Order = 2 },
+            new ComplaintStatus { Id = 3, Name = "Resuelto", IsFinal = true, Order = 3 },
+            new ComplaintStatus { Id = 4, Name = "Rechazado", IsFinal = true, Order = 4 });
+        db.StatusTransitions.AddRange(new StatusTransition { FromStatusId = 1, ToStatusId = 2 }, new StatusTransition { FromStatusId = 1, ToStatusId = 4 },
+            new StatusTransition { FromStatusId = 2, ToStatusId = 3 }, new StatusTransition { FromStatusId = 2, ToStatusId = 4 });
+        db.Priorities.AddRange(new PriorityLevel { Id = 1, Name = "Baja", MinimumScore = 0, Order = 1, ColorHex = "#000000" },
+            new PriorityLevel { Id = 2, Name = "Media", MinimumScore = 3, Order = 2, ColorHex = "#000000" },
+            new PriorityLevel { Id = 3, Name = "Alta", MinimumScore = 5, Order = 3, ColorHex = "#000000" },
+            new PriorityLevel { Id = 4, Name = "Crítica", MinimumScore = 7, Order = 4, ColorHex = "#000000" });
+        db.SlaPolicies.AddRange(Policy(1, 24), Policy(2, 12), Policy(3, 6), Policy(4, 2));
         await db.SaveChangesAsync();
     }
+
+    private static SlaPolicy Policy(short priority, int hours) => new() { Id = Guid.NewGuid(), Name = $"SLA {priority}",
+        PriorityId = priority, ResolutionHours = hours, AlertThresholdMinutes = hours * 45, ValidFrom = Now.AddDays(-1) };
 
     private static AppUser AddUser(AppDbContext db, Guid id, string first, string last, string email, string role)
     {
         var roleEntity = db.Roles.Local.Single(x => x.Name == role);
         var user = new AppUser { Id = id, FirstNames = first, LastNames = last, Email = email, CreatedAt = Now, UpdatedAt = Now };
-        user.UserRoles.Add(new UserRole { UserId = id, RoleId = roleEntity.Id, User = user, Role = roleEntity }); db.Users.Add(user); return user;
+        user.UserRoles.Add(new UserRole { UserId = id, RoleId = roleEntity.Id, User = user, Role = roleEntity });
+        db.Users.Add(user); return user;
     }
 
-    private static CreateComplaintRequest ValidRequest() => new(new CustomerRequest(" CEDULA ", " 0912345678 ", " Ana ", " Vega ", "ANA@EXAMPLE.COM", "0990000000"), 1, 1, 1, "Transferencia debitada pero no recibida por el beneficiario.", 3, 3);
+    private static CreateComplaintRequest ValidRequest() => new(
+        new CustomerRequest(" CEDULA ", " 0912345678 ", " Ana ", " Vega ", "ANA@EXAMPLE.COM", "0990000000"),
+        1, 2, 2, "Compra no reconocida reportada por la cliente desde su cuenta.", 780, false, Now);
 
-    private static Complaint SeedComplaint(AppDbContext db, short statusId = 1)
+    private static Complaint SeedComplaint(AppDbContext db, short statusId = 1, DateTimeOffset? receivedAt = null)
     {
-        var complaint = new Complaint { Id = Guid.NewGuid(), Code = $"BH-{Guid.NewGuid():N}", CustomerId = Guid.NewGuid(), ReceptionChannelId = 1, CategoryId = 1, Description = "Descripción suficientemente extensa", Impact = 2, Urgency = 2, StatusId = statusId, PriorityId = 2, PriorityScore = 4, SlaPolicyId = db.SlaPolicies.Local.Single(x => x.PriorityId == 2).Id, ReceivedAt = Now, SlaDeadline = Now.AddHours(24), CreatedByUserId = ActorId, CreatedAt = Now, UpdatedAt = Now };
-        db.Customers.Add(new Customer { Id = complaint.CustomerId, DocumentType = "CEDULA", DocumentNumber = Guid.NewGuid().ToString("N"), FirstNames = "Cliente", LastNames = "Demo", CreatedAt = Now, UpdatedAt = Now }); db.Complaints.Add(complaint); return complaint;
+        var received = receivedAt ?? Now;
+        var complaint = new Complaint { Id = Guid.NewGuid(), Code = $"BH-{Guid.NewGuid():N}", CustomerId = Guid.NewGuid(),
+            ReceptionChannelId = 1, CategoryId = 1, Description = "Descripción suficientemente extensa", StatusId = statusId,
+            PriorityId = 1, PriorityScore = 0, PriorityBreakdown = "[]", SlaPolicyId = db.SlaPolicies.Local.Single(x => x.PriorityId == 1).Id,
+            ReceivedAt = received, SlaAlertAt = received.AddHours(18), SlaDeadline = received.AddHours(24), CreatedByUserId = ActorId,
+            CreatedAt = Now, UpdatedAt = Now };
+        db.Customers.Add(new Customer { Id = complaint.CustomerId, DocumentType = "CEDULA", DocumentNumber = Random.Shared.NextInt64().ToString(),
+            FirstNames = "Cliente", LastNames = "Demo", CreatedAt = Now, UpdatedAt = Now });
+        db.Complaints.Add(complaint); return complaint;
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider { public override DateTimeOffset GetUtcNow() => now; }

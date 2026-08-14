@@ -116,6 +116,14 @@ Terminal 1:
 dotnet run --project .\src\BancoHorizonte.Api
 ```
 
+Para alinear una base creada con la versión anterior y cargar RF-10, ejecuta desde la raíz:
+
+```powershell
+dotnet run --project .\src\BancoHorizonte.Api -- --apply-requirements-database
+```
+
+El comando aplica `database/migrations/001_align_finresolve_requirements.sql` y `database/demo-data.sql`. Ambos son idempotentes.
+
 Terminal 2:
 
 ```powershell

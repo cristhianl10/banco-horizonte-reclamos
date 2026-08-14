@@ -10,7 +10,7 @@ import { DashboardSummary } from '../core/models';
     <header class="page-head"><div><p class="section-code">TABLERO / CONTROL OPERATIVO</p><h1>Buenos días, María.</h1><p>Esta es la situación de reclamos al {{ currentTime }}.</p></div><a class="action-button" routerLink="/reclamos/nuevo">＋ REGISTRAR RECLAMO</a></header>
     @if (summary(); as data) {
       <section class="metric-grid" aria-label="Indicadores principales">
-        <article><span>CASOS ABIERTOS</span><strong>{{ data.open }}</strong><small><b class="neutral">↗ 8%</b> vs. semana anterior</small></article>
+        <article><span>CASOS ABIERTOS</span><strong>{{ data.open }}</strong><small>{{data.resolved}} resueltos de {{data.total}} registrados</small></article>
         <article class="danger"><span>PRIORIDAD CRÍTICA</span><strong>{{ data.critical }}</strong><small><b>●</b> Requieren atención inmediata</small></article>
         <article class="warning"><span>PRÓXIMOS A VENCER</span><strong>{{ data.nearDeadline }}</strong><small><b>◷</b> Dentro del umbral SLA</small></article>
         <article><span>CUMPLIMIENTO SLA</span><strong>{{ data.slaCompliance }}<i>%</i></strong><small><b class="positive">↗ 2.4%</b> rendimiento del equipo</small></article>
@@ -46,6 +46,8 @@ import { DashboardSummary } from '../core/models';
       <section class="lower-grid">
         <article class="panel category-panel"><header><div><p class="section-code">DISTRIBUCIÓN</p><h2>Reclamos por categoría</h2></div></header>
           <div class="category-bars">@for (slice of data.byCategory; track slice.label; let i = $index) { <div><span>{{ slice.label }}</span><div><i [style.width.%]="slice.value * 18"></i></div><b>{{ slice.value }}</b></div> }</div>
+          <header><div><p class="section-code">PRIORIDAD</p><h2>Reclamos por nivel</h2></div></header>
+          <div class="category-bars">@for (slice of data.byPriority; track slice.label) { <div><span>{{ slice.label }}</span><div><i [style.width.%]="slice.value * 18"></i></div><b>{{ slice.value }}</b></div> }</div>
         </article>
         <article class="panel pulse-panel"><p class="section-code">ESTADO DEL SISTEMA</p><div class="pulse-ring"><span>{{ data.overdue }}</span></div><h2>Casos fuera de SLA</h2><p>Prioriza estos casos para recuperar el nivel de cumplimiento.</p><a routerLink="/reclamos" [queryParams]="{sla:'overdue'}">REVISAR VENCIDOS →</a></article>
       </section>

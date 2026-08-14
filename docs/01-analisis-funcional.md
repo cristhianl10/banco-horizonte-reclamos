@@ -1,120 +1,99 @@
-# Análisis funcional
+# Análisis funcional — Banco Horizonte
 
-## 1. Contexto y problema
+## Problema
 
-Banco Horizonte recibe diariamente reclamos sobre transferencias, tarjetas, cobros, canales digitales y atención al cliente. Los casos llegan por correo, llamadas, formularios y hojas de cálculo independientes. No existe una fuente única de verdad para conocer el estado, responsable, prioridad o tiempo límite de cada reclamo.
+Banco Horizonte recibe reclamos por correo, llamadas, formularios y hojas de cálculo independientes. El problema no es solo el volumen: la información está fragmentada y no existe un criterio común para decidir qué atender primero.
 
-Esto produce:
+Esto provoca reclamos duplicados o sin responsable, prioridades subjetivas, incumplimientos de SLA, poca trazabilidad y ausencia de indicadores para supervisión.
 
-- Reclamos duplicados o sin responsable.
-- Priorización subjetiva.
-- Incumplimiento de los tiempos máximos de atención (SLA).
-- Falta de trazabilidad de los cambios.
-- Falta de indicadores para supervisores y jefaturas.
+## Objetivo
 
-## 2. Problema central
+Centralizar el ciclo completo del reclamo en una aplicación web que permita registrar, priorizar automáticamente, asignar, atender, auditar y supervisar casos.
 
-La ausencia de una plataforma centralizada que clasifique, asigne, controle y audite reclamos impide a Banco Horizonte priorizar objetivamente los casos, cumplir sus SLA y supervisar el desempeño operativo en tiempo real.
+El tablero debe responder en segundos:
 
-## 3. Objetivo general
+- cuáles reclamos consumieron al menos el 75 % de su SLA o ya vencieron;
+- quién atiende cada caso y en qué estado está;
+- qué reclamos requieren atención inmediata por prioridad crítica o riesgo SLA.
 
-Desarrollar un prototipo web para centralizar la gestión de reclamos de Banco Horizonte, automatizando la prioridad y el SLA, facilitando la asignación de responsables, preservando la trazabilidad e informando el riesgo operativo mediante un tablero.
+## Usuarios y responsabilidades
 
-## 4. Objetivos específicos
+| Perfil | Responsabilidad | Acciones del MVP |
+|---|---|---|
+| Operador | Registrar correctamente el reclamo recibido. | Crear el caso y revisar código, puntaje, prioridad y SLA calculados. |
+| Analista | Atender casos y mantener trazabilidad. | Ver detalle, asumir casos sin responsable, cambiar estado y registrar observaciones. |
+| Supervisor | Controlar riesgo operativo y avance. | Consultar todos los casos, filtrar, revisar alertas e indicadores y asignar o reasignar responsables. |
 
-1. Registrar reclamos provenientes de distintos canales bajo un código único.
-2. Detectar posibles duplicados antes de crear un caso.
-3. Calcular prioridad y fecha límite de SLA con reglas configurables.
-4. Asignar y reasignar responsables, preservando el historial de asignaciones.
-5. Controlar el ciclo de vida de cada caso y registrar todas sus novedades.
-6. Alertar sobre casos próximos a vencer o vencidos.
-7. Mostrar indicadores operativos para supervisión.
+La autenticación con Supabase y el rol técnico `Administrador` son extensiones del prototipo. El registro público asigna `Operador`; los demás roles se otorgan mediante el script administrativo existente.
 
-## 5. Preguntas que debe resolver el producto
+## Flujo transaccional
 
-| Pregunta operativa | Respuesta del sistema |
+1. El operador identifica al cliente y registra canal, categoría, subcategoría, descripción, monto opcional, fecha de recepción e indisponibilidad digital.
+2. El sistema busca posibles duplicados recientes del mismo cliente y categoría.
+3. Al confirmar, genera un código único y calcula puntaje, prioridad, SLA, alerta al 75 % y fecha límite.
+4. El supervisor asigna o reasigna un analista; la asignación no cambia el estado.
+5. Un analista también puede asumir un caso sin responsable.
+6. El analista cambia `Nuevo` a `En análisis` y registra una observación obligatoria.
+7. Desde `En análisis`, el caso termina como `Resuelto` o `Rechazado`; no se reabre.
+8. Cada creación, asignación, observación, recálculo y cambio de estado queda en el historial.
+9. El tablero recalcula el riesgo y muestra casos próximos, vencidos y críticos.
+
+## Priorización automática (RF-02)
+
+Las reglas son acumulativas y parten de cero:
+
+| Condición verificable | Puntos |
+|---|---:|
+| Transacción o compra no reconocida | +4 |
+| Transferencia no acreditada o acceso/canal bloqueado | +3 |
+| Monto afectado igual o superior a USD 500 | +3 |
+| Canal digital completamente indisponible | +2 |
+| Reclamo abierto por más de 24 horas | +2 |
+
+| Puntaje | Prioridad | SLA |
+|---:|---|---:|
+| 0–2 | Baja | 24 horas |
+| 3–4 | Media | 12 horas |
+| 5–6 | Alta | 6 horas |
+| 7 o más | Crítica | 2 horas |
+
+La API conserva el desglose de reglas aplicado. El operador nunca elige impacto, urgencia ni prioridad.
+
+## SLA
+
+- `fecha_limite_sla = fecha_recepcion + horas_sla`.
+- `fecha_alerta_sla = fecha_recepcion + 75 % del SLA`.
+- `En tiempo`: todavía no alcanza la alerta.
+- `Próximo`: alcanzó el 75 %, sigue abierto y aún no vence.
+- `Vencido`: sigue abierto y la fecha límite ya pasó.
+- Los casos abiertos por más de 24 horas se repriorizan al consultar bandeja, detalle o tablero.
+
+## Estados permitidos
+
+| Origen | Destinos válidos |
 |---|---|
-| ¿Cuáles reclamos están próximos a incumplir su SLA? | Filtro y tarjeta de alerta que comparan `fecha_limite_sla` contra la hora actual. |
-| ¿Quién atiende cada caso y en qué estado se encuentra? | Detalle y listado con responsable actual, estado actual e historial. |
-| ¿Qué reclamos requieren atención inmediata? | Vista de prioridad crítica, casos vencidos y casos dentro del umbral de alerta. |
+| Nuevo | En análisis, Rechazado |
+| En análisis | Resuelto, Rechazado |
+| Resuelto | — |
+| Rechazado | — |
 
-## 6. Alcance del MVP
+Todo cambio de estado exige observación, fecha y actor.
 
-Incluye:
+## Requisitos funcionales trazados
 
-- Autenticación y autorización por rol.
-- Registro y consulta de clientes.
-- Registro de reclamos y adjuntos.
-- Detección de posibles duplicados.
-- Priorización y SLA calculados por reglas.
-- Asignación, reasignación y toma de casos.
-- Estados, observaciones e historial auditable.
-- Tablero para supervisores con filtros e indicadores.
-- Catálogos administrativos: categorías, estados, prioridades, canales y políticas SLA.
+| ID | Cumplimiento |
+|---|---|
+| RF-01 | Registro con cliente ficticio, canal, categoría, descripción, monto y fecha; código único y validaciones. |
+| RF-02 | Puntaje, prioridad y SLA automáticos mediante las reglas exactas del reto. |
+| RF-03 | Bandeja con búsqueda y filtros por estado, prioridad, categoría, canal, responsable y SLA. |
+| RF-04 | Expediente con todos los datos, responsable, tiempo SLA, reglas aplicadas y trazabilidad. |
+| RF-05 | Asignación y reasignación de analista con historial. |
+| RF-06 | Estados mínimos y transiciones controladas con observación obligatoria. |
+| RF-07 | Tablero con totales, abiertos, resueltos, próximos, vencidos y distribuciones. |
+| RF-08 | Alertas visuales calculadas con fechas reales y umbral del 75 %. |
+| RF-09 | Errores de validación y negocio expresados en lenguaje entendible. |
+| RF-10 | Script idempotente con diez reclamos y clientes sintéticos. |
 
-No incluye inicialmente:
+## Adaptaciones tecnológicas acordadas
 
-- Integración real con el core bancario, correo o call center.
-- Pagos, reversos o resolución automática de transacciones.
-- Notificaciones por SMS/WhatsApp o correo productivo.
-- Firma digital o expediente regulatorio completo.
-
-## 7. Usuarios y permisos
-
-| Perfil | Necesidad | Acciones permitidas |
-|---|---|---|
-| Operador de atención | Registrar correctamente un reclamo recibido. | Crear reclamo, buscar cliente, ver código, prioridad y SLA calculados, adjuntar evidencia. |
-| Analista | Resolver sus casos y mantener trazabilidad. | Ver casos asignados, asumir casos disponibles, actualizar estado, agregar observaciones y solicitar reasignación. |
-| Supervisor | Controlar riesgo y carga operativa. | Consultar todos los casos, filtros, SLA, indicadores, asignar/reasignar y cerrar casos. |
-| Administrador | Mantener la configuración de la plataforma. | Administrar usuarios, roles, catálogos, reglas de prioridad y políticas SLA. |
-
-## 8. Flujo principal
-
-1. El operador identifica al cliente y registra el reclamo.
-2. El sistema busca coincidencias recientes y muestra posibles duplicados.
-3. Al confirmar el registro, se genera el código único y se calcula prioridad, política SLA y fecha límite.
-4. El supervisor asigna un analista, o el analista asume un caso disponible.
-5. El analista cambia el estado y añade observaciones durante la atención.
-6. Toda modificación relevante queda en el historial de auditoría.
-7. El supervisor usa el tablero para identificar casos críticos, vencidos y próximos a vencer.
-8. Al resolverlo, se registra fecha y solución; el supervisor puede cerrar el caso.
-
-## 9. Estados del reclamo
-
-| Estado | Significado | Transiciones permitidas |
-|---|---|---|
-| Nuevo | Registrado y pendiente de asignar. | Asignado, Cancelado |
-| Asignado | Tiene responsable, aún no se analiza. | En análisis, Reasignado, Cancelado |
-| En análisis | El analista está investigando. | En espera de cliente, Resuelto, Reasignado |
-| En espera de cliente | Requiere información del cliente. | En análisis, Cancelado |
-| Resuelto | Se entregó una solución. | Cerrado, En análisis |
-| Cerrado | Caso finalizado y no editable salvo reapertura supervisada. | En análisis (supervisor) |
-| Cancelado | Registro inválido o duplicado confirmado. | — |
-
-## 10. Requisitos funcionales
-
-- RF-01: El sistema debe autenticar usuarios y aplicar permisos por rol.
-- RF-02: Debe permitir registrar clientes y buscar clientes existentes.
-- RF-03: Debe registrar reclamos con canal, categoría, descripción, impacto, urgencia y evidencias.
-- RF-04: Debe generar un código único legible por reclamo.
-- RF-05: Debe detectar y advertir posibles duplicados por cliente, categoría, descripción y periodo.
-- RF-06: Debe calcular prioridad, política SLA y fecha límite automáticamente.
-- RF-07: Debe permitir asignar, reasignar y asumir un reclamo.
-- RF-08: Debe permitir actualizar estados solo mediante transiciones válidas.
-- RF-09: Debe registrar observaciones y adjuntos.
-- RF-10: Debe mantener historial inmutable de asignaciones y cambios relevantes.
-- RF-11: Debe listar y filtrar reclamos por estado, responsable, categoría, prioridad, fechas y situación SLA.
-- RF-12: Debe mostrar métricas y alertas en el tablero del supervisor.
-- RF-13: Debe permitir administrar catálogos y reglas a usuarios administradores.
-
-## 11. Requisitos no funcionales
-
-- RNF-01: Interfaz web responsive para escritorio y móvil.
-- RNF-02: API REST documentada con OpenAPI/Swagger.
-- RNF-03: Las operaciones protegidas deben requerir JWT válido.
-- RNF-04: No se expondrán claves privadas ni conexión de base de datos al navegador.
-- RNF-05: Los cambios de estado, prioridad y responsable deben ser auditables.
-- RNF-06: Listados paginados y filtrables.
-- RNF-07: Mensajes de error claros, consistentes y sin filtrar información sensible.
-- RNF-08: Fechas almacenadas en UTC y presentadas según zona horaria configurada.
-
+El documento sugería React y MySQL. Este portafolio usa Angular y PostgreSQL/Supabase por decisión del proyecto, conservando el comportamiento funcional. ASP.NET Core es el único acceso de negocio a las tablas; el navegador utiliza Supabase únicamente para autenticación.

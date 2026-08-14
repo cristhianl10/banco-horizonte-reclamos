@@ -111,14 +111,16 @@ public sealed class Complaint
     public short CategoryId { get; set; }
     public short? SubcategoryId { get; set; }
     public string Description { get; set; } = string.Empty;
-    public short Impact { get; set; }
-    public short Urgency { get; set; }
+    public decimal? AffectedAmount { get; set; }
+    public bool DigitalChannelUnavailable { get; set; }
     public short StatusId { get; set; }
     public short PriorityId { get; set; }
     public short PriorityScore { get; set; }
     public Guid SlaPolicyId { get; set; }
     public DateTimeOffset ReceivedAt { get; set; }
+    public DateTimeOffset SlaAlertAt { get; set; }
     public DateTimeOffset SlaDeadline { get; set; }
+    public string PriorityBreakdown { get; set; } = "[]";
     public DateTimeOffset? ResolvedAt { get; set; }
     public Guid? CurrentAssigneeId { get; set; }
     public Guid CreatedByUserId { get; set; }

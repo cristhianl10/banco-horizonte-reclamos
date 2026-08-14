@@ -7,6 +7,14 @@ import { CurrentUser } from './models';
 
 interface SupabaseSession { access_token: string; refresh_token: string; expires_in: number; expires_at?: number; user: { id: string; email: string }; }
 
+export type AuthFailureStage = 'sign-in' | 'profile';
+
+export class AuthFlowError extends Error {
+  constructor(readonly stage: AuthFailureStage, readonly source: unknown) {
+    super(stage === 'sign-in' ? 'No se pudo validar la cuenta.' : 'No se pudo cargar el perfil.');
+  }
+}
+
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly http = inject(HttpClient);
@@ -32,17 +40,33 @@ export class AuthService {
   async login(email: string, password: string): Promise<void> {
     if (environment.demoMode) { this.user.set(this.demoUser); await this.navigateHome(); return; }
     this.ensureConfigured();
-    const session = await firstValueFrom(this.http.post<SupabaseSession>(
-      `${environment.supabaseUrl}/auth/v1/token?grant_type=password`, { email, password }, { headers: this.supabaseHeaders() }));
+    let session: SupabaseSession;
+    try {
+      session = await firstValueFrom(this.http.post<SupabaseSession>(
+        `${environment.supabaseUrl}/auth/v1/token?grant_type=password`,
+        { email: email.trim().toLowerCase(), password },
+        { headers: this.supabaseHeaders() }));
+    } catch (error) {
+      throw new AuthFlowError('sign-in', error);
+    }
     this.saveSession(session);
-    await this.loadProfile();
+    try {
+      await this.loadProfile();
+    } catch (error) {
+      this.clearSession();
+      throw new AuthFlowError('profile', error);
+    }
     await this.navigateHome();
   }
 
   async signUp(firstNames: string, lastNames: string, email: string, password: string): Promise<void> {
     this.ensureConfigured();
+    const normalizedEmail = email.trim().toLowerCase();
+    const status = await firstValueFrom(this.http.post<{ registered: boolean }>(
+      `${environment.apiUrl}/auth/registration-status`, { email: normalizedEmail }));
+    if (status.registered) throw new Error('Este correo ya está registrado. Inicia sesión con tu cuenta existente.');
     await firstValueFrom(this.http.post(`${environment.supabaseUrl}/auth/v1/signup`,
-      { email, password, data: { first_names: firstNames, last_names: lastNames } }, { headers: this.supabaseHeaders() }));
+      { email: normalizedEmail, password, data: { first_names: firstNames, last_names: lastNames } }, { headers: this.supabaseHeaders() }));
   }
 
   async loadProfile(): Promise<void> {
@@ -60,7 +84,7 @@ export class AuthService {
     this.saveSession(session);
   }
 
-  logout(): void { localStorage.removeItem(this.sessionKey); this.user.set(null); void this.router.navigate(['/login']); }
+  logout(): void { this.clearSession(); void this.router.navigate(['/login']); }
   hasAnyRole(...roles: string[]): boolean { return this.user()?.roles.some(role => roles.includes(role)) ?? false; }
   async navigateHome(): Promise<void> {
     await this.router.navigate([this.hasAnyRole('Supervisor', 'Administrador') ? '/dashboard' : '/reclamos']);
@@ -73,5 +97,9 @@ export class AuthService {
   private saveSession(session: SupabaseSession): void {
     session.expires_at = Math.floor(Date.now() / 1000) + session.expires_in;
     localStorage.setItem(this.sessionKey, JSON.stringify(session));
+  }
+  private clearSession(): void {
+    localStorage.removeItem(this.sessionKey);
+    this.user.set(null);
   }
 }

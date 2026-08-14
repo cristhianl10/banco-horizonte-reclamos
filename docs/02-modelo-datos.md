@@ -1,51 +1,39 @@
 # Modelo de datos normalizado
 
-## Decisión de normalización
+## Criterio
 
-El modelo se diseña en Tercera Forma Normal (3FN): catálogos separados, relaciones mediante claves foráneas y datos históricos en tablas independientes. `reclamos` contiene solamente el estado operativo actual para lecturas rápidas; cada cambio se conserva además como evento histórico.
+El modelo está en Tercera Forma Normal: catálogos separados, relaciones por claves foráneas y datos históricos en tablas independientes. `reclamos` conserva el estado operativo actual para consultas rápidas; los cambios viven además en tablas de auditoría.
 
-## Entidades principales
+## Entidades
 
 | Entidad | Responsabilidad |
 |---|---|
-| usuarios, roles, usuario_roles | Personal interno y autorización de aplicación. |
-| clientes | Persona titular o afectada por el reclamo. |
-| canales_recepcion | Origen del reclamo. |
-| categorias_reclamo, subcategorias_reclamo | Clasificación funcional. |
-| niveles_prioridad | Valores ordenados de prioridad. |
-| estados_reclamo | Estados permitidos del ciclo de vida. |
-| politicas_sla | Tiempo máximo aplicable según prioridad/categoría. |
-| reglas_prioridad | Puntuaciones configurables para el cálculo objetivo. |
-| reclamos | Caso operativo principal. |
-| asignaciones_reclamo | Historial de responsables. |
-| historial_reclamo | Auditoría de cambios relevantes. |
-| observaciones_reclamo | Comentarios funcionales. |
-| adjuntos_reclamo | Metadatos de archivos alojados en Storage. |
+| `usuarios`, `roles`, `usuario_roles` | Identidad interna y autorización. |
+| `clientes` | Persona ficticia afectada por el reclamo. |
+| `canales_recepcion` | Origen del reclamo. |
+| `categorias_reclamo`, `subcategorias_reclamo` | Clasificación funcional. |
+| `niveles_prioridad` | Baja, Media, Alta y Crítica. |
+| `estados_reclamo`, `transiciones_estado` | Ciclo de vida permitido. |
+| `politicas_sla` | Plazo vigente asociado a una prioridad. |
+| `reclamos` | Caso operativo, hechos, resultado de prioridad y marcas SLA. |
+| `asignaciones_reclamo` | Historial de responsables. |
+| `historial_reclamo` | Auditoría de eventos. |
+| `observaciones_reclamo` | Comentarios funcionales. |
 
-## Relaciones
+## Datos calculados del reclamo
 
-```text
-Cliente 1 ── * Reclamo * ── 1 Categoría ── * Subcategoría
-Usuario 1 ── * Reclamo (responsable actual)
-Reclamo 1 ── * Asignación ── 1 Usuario
-Reclamo 1 ── * Historial ── 1 Usuario
-Reclamo 1 ── * Observación ── 1 Usuario
-Reclamo 1 ── * Adjunto
-Reclamo * ── 1 Estado / Prioridad / Canal / Política SLA
-Usuario * ── * Rol
-```
+`reclamos` persiste `monto_afectado`, `indisponibilidad_digital`, `puntaje_prioridad`, `desglose_prioridad`, `fecha_alerta_sla` y `fecha_limite_sla`. Impacto y urgencia no forman parte del modelo actual: la prioridad se deriva exclusivamente de hechos verificables definidos en RF-02.
 
-## Reglas de integridad
+## Integridad
 
-- Un código de reclamo es único.
-- Una subcategoría pertenece a una sola categoría.
-- Una política SLA no se elimina si fue aplicada a un reclamo; se desactiva.
-- Un caso cerrado o cancelado no acepta modificaciones operativas sin reapertura autorizada.
-- Solo un responsable actual puede estar activo por reclamo.
-- Un historial no se actualiza ni elimina desde la aplicación.
-- La prioridad y fecha límite son valores calculados al registrar/recalcular; se conservan para auditoría.
+- Código único por reclamo.
+- Documento único por tipo de documento.
+- Subcategoría perteneciente a la categoría seleccionada.
+- Un único responsable activo por reclamo.
+- Monto nulo o no negativo.
+- Alerta posterior a la recepción y anterior al vencimiento.
+- Estados finales sin transiciones de salida.
+- Políticas aplicadas no se eliminan; se desactivan.
+- Historial generado por la API en cada mutación relevante.
 
-## Esquema inicial
-
-El esquema ejecutable estará en [schema.sql](../database/schema.sql). Las columnas de auditoría usan UTC.
-
+El esquema para instalaciones nuevas está en [schema.sql](../database/schema.sql) y la actualización del esquema existente en [001_align_finresolve_requirements.sql](../database/migrations/001_align_finresolve_requirements.sql).
