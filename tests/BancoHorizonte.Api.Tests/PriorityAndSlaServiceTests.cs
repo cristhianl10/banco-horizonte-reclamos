@@ -12,9 +12,9 @@ public sealed class PriorityAndSlaServiceTests
     [Theory]
     [InlineData("Atención al cliente", "Demora en atención", null, false, 0, "Baja", 24)]
     [InlineData("Tarjetas", "Compra no reconocida", null, false, 4, "Media", 12)]
-    [InlineData("Transferencias", "Transferencia no acreditada", 100, false, 3, "Media", 12)]
+    [InlineData("Transferencias", "Transferencia no acreditada", 100d, false, 3, "Media", 12)]
     [InlineData("Canales digitales", "Acceso o canal bloqueado", null, true, 5, "Alta", 6)]
-    [InlineData("Tarjetas", "Compra no reconocida", 780, false, 7, "Crítica", 2)]
+    [InlineData("Tarjetas", "Compra no reconocida", 780d, false, 7, "Crítica", 2)]
     public void Calculate_AppliesDocumentRules(string category, string subcategory, double? amount, bool unavailable,
         short score, string level, int hours)
     {
