@@ -24,11 +24,13 @@ export class AuthService {
   readonly user = signal<CurrentUser | null>(environment.demoMode ? this.demoUser : null);
   readonly isAuthenticated = computed(() => this.user() !== null || !!this.accessToken);
   readonly isDemo = environment.demoMode;
+  private readonly initialization: Promise<void>;
+  private refreshInFlight: Promise<void> | null = null;
 
   constructor() {
-    if (!environment.demoMode && this.accessToken) {
-      void this.refreshSession().then(() => this.loadProfile()).catch(() => this.logout());
-    }
+    this.initialization = !environment.demoMode && this.accessToken
+      ? this.refreshSession().then(() => this.loadProfile()).catch(() => this.logout())
+      : Promise.resolve();
   }
 
   get accessToken(): string | null {
@@ -74,14 +76,19 @@ export class AuthService {
     this.user.set(profile);
   }
 
-  async refreshSession(): Promise<void> {
-    const raw = localStorage.getItem(this.sessionKey); if (!raw) return;
+  whenReady(): Promise<void> { return this.initialization; }
+
+  refreshSession(force = false): Promise<void> {
+    const raw = localStorage.getItem(this.sessionKey); if (!raw) return Promise.resolve();
     const current = JSON.parse(raw) as SupabaseSession;
-    if ((current.expires_at ?? 0) > Math.floor(Date.now() / 1000) + 60) return;
-    const session = await firstValueFrom(this.http.post<SupabaseSession>(
-      `${environment.supabaseUrl}/auth/v1/token?grant_type=refresh_token`,
-      { refresh_token: current.refresh_token }, { headers: this.supabaseHeaders() }));
-    this.saveSession(session);
+    if (!force && (current.expires_at ?? 0) > Math.floor(Date.now() / 1000) + 60) return Promise.resolve();
+    if (this.refreshInFlight) return this.refreshInFlight;
+    this.refreshInFlight = firstValueFrom(this.http.post<SupabaseSession>(
+        `${environment.supabaseUrl}/auth/v1/token?grant_type=refresh_token`,
+        { refresh_token: current.refresh_token }, { headers: this.supabaseHeaders() }))
+      .then(session => this.saveSession(session))
+      .finally(() => { this.refreshInFlight = null; });
+    return this.refreshInFlight;
   }
 
   logout(): void { this.clearSession(); void this.router.navigate(['/login']); }

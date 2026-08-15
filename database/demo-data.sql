@@ -44,14 +44,27 @@ insert into public.reclamos(
   indisponibilidad_digital, estado_id, prioridad_id, puntaje_prioridad, desglose_prioridad, politica_sla_id,
   fecha_recepcion, fecha_alerta_sla, fecha_limite_sla, fecha_resolucion, creado_por_usuario_id)
 select r.code, r.customer_id, r.channel_id, r.category_id, r.subcategory_id, r.description, r.amount, r.unavailable,
-       r.status_id, r.priority_id, r.score, '[]'::jsonb, r.policy_id,
+       r.status_id, r.priority_id, r.score,
+       case r.code
+         when 'BH-DEMO-0001' then jsonb_build_array(jsonb_build_object('rule','Transacción o compra no reconocida','points',4),jsonb_build_object('rule','Monto afectado igual o superior a USD 500','points',3))
+         when 'BH-DEMO-0002' then jsonb_build_array(jsonb_build_object('rule','Transferencia no acreditada o acceso/canal bloqueado','points',3))
+         when 'BH-DEMO-0003' then jsonb_build_array(jsonb_build_object('rule','Transferencia no acreditada o acceso/canal bloqueado','points',3),jsonb_build_object('rule','Canal digital completamente indisponible','points',2))
+         when 'BH-DEMO-0004' then jsonb_build_array(jsonb_build_object('rule','Monto afectado igual o superior a USD 500','points',3))
+         when 'BH-DEMO-0005' then jsonb_build_array(jsonb_build_object('rule','Transacción o compra no reconocida','points',4))
+         when 'BH-DEMO-0006' then jsonb_build_array(jsonb_build_object('rule','Canal digital completamente indisponible','points',2))
+         when 'BH-DEMO-0007' then jsonb_build_array(jsonb_build_object('rule','Reclamo abierto por más de 24 horas','points',2))
+         when 'BH-DEMO-0008' then jsonb_build_array(jsonb_build_object('rule','Transferencia no acreditada o acceso/canal bloqueado','points',3),jsonb_build_object('rule','Monto afectado igual o superior a USD 500','points',3),jsonb_build_object('rule','Reclamo abierto por más de 24 horas','points',2))
+         when 'BH-DEMO-0010' then jsonb_build_array(jsonb_build_object('rule','Monto afectado igual o superior a USD 500','points',3))
+         else '[]'::jsonb
+       end,
+       r.policy_id,
        now() - make_interval(hours => r.age_hours),
        now() - make_interval(hours => r.age_hours) + make_interval(mins => r.sla_hours * 45),
        now() - make_interval(hours => r.age_hours) + make_interval(hours => r.sla_hours),
        case when r.status='Resuelto' then now() - interval '10 hours' else null end,
        a.id
 from resolved r cross join actor a
-on conflict (codigo) do nothing;
+on conflict (codigo) do update set desglose_prioridad=excluded.desglose_prioridad;
 
 insert into public.historial_reclamo(reclamo_id, actor_usuario_id, tipo_evento, datos_despues)
 select r.id, a.id, 'RECLAMO_DEMO_CREADO', jsonb_build_object('codigo', r.codigo)

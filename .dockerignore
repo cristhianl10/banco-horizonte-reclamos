@@ -1,0 +1,15 @@
+.git
+.github
+.vs
+.vscode
+**/bin
+**/obj
+**/node_modules
+**/dist
+**/.angular
+**/TestResults
+src/banco-horizonte-web
+tests
+docs
+database
+*.log

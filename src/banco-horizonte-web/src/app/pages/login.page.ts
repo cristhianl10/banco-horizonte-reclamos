@@ -25,7 +25,7 @@ interface AuthFeedback {
           <div class="access-index">ACCESO SEGURO <span>02—06</span></div>
           <h2>{{ registering() ? 'Crea tu acceso' : 'Bienvenido de vuelta' }}</h2>
           <p>{{ registering() ? 'Registra tu identidad y confirma el enlace enviado a tu correo.' : 'Ingresa con tus credenciales institucionales.' }}</p>
-          @if (auth.isDemo) { <div class="demo-note"><strong>Modo demostración</strong><span>Usa cualquier correo y contraseña de 6 caracteres.</span></div> }
+            @if (auth.isDemo) { <div class="demo-note"><strong>Modo demostración</strong><span>Usa cualquier correo y contraseña de al menos 8 caracteres.</span></div> }
           <form [formGroup]="form" (ngSubmit)="submit()" novalidate>
             @if (registering()) {
               <div class="name-grid">

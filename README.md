@@ -64,3 +64,7 @@ npm run build
 ```
 
 Consulta [docs/05-configuracion-supabase.md](docs/05-configuracion-supabase.md) para la configuración y [docs/06-pruebas.md](docs/06-pruebas.md) para la estrategia de pruebas.
+
+## Despliegue
+
+El monorepo está preparado para publicar Angular en Vercel, la API .NET mediante Docker en Render y conservar Auth/PostgreSQL en Supabase. Sigue la guía [docs/07-despliegue.md](docs/07-despliegue.md).

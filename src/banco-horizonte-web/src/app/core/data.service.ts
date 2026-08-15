@@ -44,9 +44,9 @@ export class DataService {
       immediateAttention: open.filter(item => item.slaState !== 'En tiempo' || item.priority === 'Crítica') });
   }
 
-  complaints(search = '', sla = '', filters: { statusId?: number; priorityId?: number; categoryId?: number; channelId?: number; assigneeId?: string } = {}): Observable<PagedResult<ComplaintListItem>> {
+  complaints(search = '', sla = '', filters: { statusId?: number; priorityId?: number; categoryId?: number; channelId?: number; assigneeId?: string } = {}, page = 1, pageSize = 20): Observable<PagedResult<ComplaintListItem>> {
     if (!environment.demoMode) {
-      let params = new HttpParams().set('page', 1).set('pageSize', 50);
+      let params = new HttpParams().set('page', page).set('pageSize', pageSize);
       if (search) params = params.set('search', search);
       if (sla) params = params.set('sla', sla);
       for (const [key, value] of Object.entries(filters)) if (value != null && value !== '') params = params.set(key, value);
@@ -55,7 +55,8 @@ export class DataService {
     const term = search.toLowerCase();
     const items = this.demoComplaints.filter(item => (!term || `${item.code} ${item.customer} ${item.category}`.toLowerCase().includes(term)) &&
       (!sla || (sla === 'overdue' ? item.slaState === 'Vencido' : item.slaState === 'Próximo')));
-    return of({ items, page: 1, pageSize: 50, total: items.length });
+    const start = (page - 1) * pageSize;
+    return of({ items: items.slice(start, start + pageSize), page, pageSize, total: items.length });
   }
 
   complaint(id: string): Observable<ComplaintDetail> {

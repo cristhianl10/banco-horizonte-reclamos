@@ -5,10 +5,14 @@ import { FormsModule } from '@angular/forms';
 import { DataService } from '../core/data.service';
 import { CatalogResponse, ComplaintDetail } from '../core/models';
 import { AuthService } from '../core/auth.service';
+import { apiErrorMessage } from '../core/api-error';
 
 @Component({
   imports:[DatePipe,RouterLink,FormsModule],
   template:`
+    @if(error()){
+      <section class="feedback-panel" role="alert"><div><strong>No pudimos abrir el expediente</strong><p>{{error()}}</p></div><button type="button" (click)="load()">REINTENTAR</button></section>
+    }
     @if(item();as claim){
       <header class="detail-head"><div><a routerLink="/reclamos">← VOLVER A RECLAMOS</a><p class="section-code">EXPEDIENTE / {{claim.code}}</p><div class="title-line"><h1>{{claim.category}}</h1><span class="priority" [attr.data-priority]="claim.priority">{{claim.priority}}</span></div><p>{{claim.customer}} · {{claim.document}}</p></div><div class="sla-clock" [attr.data-state]="claim.slaState"><small>{{claim.slaState==='Vencido'?'SLA INCUMPLIDO':'FECHA LÍMITE SLA'}}</small><strong>{{claim.slaDeadline|date:'dd MMM · HH:mm'}}</strong><span>{{slaMessage(claim.slaDeadline,claim.slaState)}}</span></div></header>
       <div class="detail-grid">
@@ -20,29 +24,33 @@ import { AuthService } from '../core/auth.service';
           @if(auth.hasAnyRole('Analista','Supervisor','Administrador')){
             <article class="panel action-card"><header><p class="section-code">GESTIÓN DEL CASO</p></header><div>
               <label>Estado actual<select [(ngModel)]="statusId">@for(status of catalogs()?.statuses;track status.id){<option [ngValue]="status.id">{{status.name}}</option>}</select></label>
-              <label>Observación obligatoria<textarea [(ngModel)]="observation" rows="3" placeholder="Explica el motivo del cambio…"></textarea></label><button (click)="updateStatus()" [disabled]="observation.trim().length < 3 || statusId === claim.statusId">ACTUALIZAR ESTADO</button>
+              <label>Observación obligatoria<textarea [(ngModel)]="observation" rows="3" placeholder="Explica el motivo del cambio…"></textarea></label><button (click)="updateStatus()" [disabled]="actionPending() || observation.trim().length < 3 || statusId === claim.statusId">ACTUALIZAR ESTADO</button>
             </div></article>
           }
           <article class="panel action-card"><header><p class="section-code">RESPONSABLE</p></header><div><div class="current-owner"><span>{{ownerInitials(claim.assignee)}}</span><div><small>ASIGNADO A</small><strong>{{claim.assignee||'Sin responsable'}}</strong></div></div>
             @if(auth.hasAnyRole('Supervisor','Administrador')){
-              <label>Asignar analista<select [(ngModel)]="analystId"><option value="">Seleccionar</option>@for(a of catalogs()?.analysts;track a.id){<option [value]="a.id">{{a.name}}</option>}</select></label><button class="secondary" (click)="assign()" [disabled]="!analystId">ASIGNAR RESPONSABLE</button>
-            } @else if(auth.hasAnyRole('Analista')&&!claim.assignee){<button class="secondary" (click)="take()">ASUMIR ESTE CASO</button>}
+              <label>Asignar analista<select [(ngModel)]="analystId"><option value="">Seleccionar</option>@for(a of catalogs()?.analysts;track a.id){<option [value]="a.id">{{a.name}}</option>}</select></label><button class="secondary" (click)="assign()" [disabled]="actionPending() || !analystId">ASIGNAR RESPONSABLE</button>
+            } @else if(auth.hasAnyRole('Analista')&&!claim.assignee){<button class="secondary" (click)="take()" [disabled]="actionPending()">ASUMIR ESTE CASO</button>}
           </div></article>
           <article class="panel customer-card"><header><p class="section-code">DATOS DEL CLIENTE</p></header><dl><dt>Nombre</dt><dd>{{claim.customer}}</dd><dt>Documento</dt><dd>{{claim.document}}</dd><dt>Correo</dt><dd>{{claim.email||'No registrado'}}</dd><dt>Teléfono</dt><dd>{{claim.phone||'No registrado'}}</dd></dl></article>
-          @if(message()){<div class="message" role="status">{{message()}}</div>}
+          @if(message()){<div class="message" [class.error-message]="messageIsError()" [attr.role]="messageIsError() ? 'alert' : 'status'">{{message()}}</div>}
         </aside>
       </div>
-    }@else{<div class="loading-state">Cargando expediente…</div>}
+    }@else if(loading()){<div class="loading-state">Cargando expediente…</div>}
   `,
-  styleUrl:'./complaint-detail.page.scss'
+  styleUrls:['./complaint-detail.page.scss','./complaint-detail.production.scss']
 })
 export class ComplaintDetailPage{
-  private readonly data=inject(DataService);private readonly route=inject(ActivatedRoute);readonly auth=inject(AuthService);readonly item=signal<ComplaintDetail|null>(null);readonly catalogs=signal<CatalogResponse|null>(null);readonly message=signal('');statusId=1;analystId='';observation='';private id='';
-  constructor(){this.id=this.route.snapshot.paramMap.get('id')!;this.data.catalogs().subscribe(x=>this.catalogs.set(x));this.load();}
-  load():void{this.data.complaint(this.id).subscribe(x=>{this.item.set(x);this.statusId=x.statusId;this.analystId=x.assigneeId||'';});}
-  updateStatus():void{if(this.observation.trim().length<3)return;this.data.changeStatus(this.id,this.statusId,this.observation.trim()).subscribe(()=>{this.message.set('Estado actualizado correctamente.');this.observation='';this.load();});}
-  assign():void{this.data.assign(this.id,this.analystId,'Asignación desde el expediente').subscribe(()=>{this.message.set('Responsable actualizado correctamente.');this.load();});}
-  take():void{this.data.take(this.id).subscribe(()=>{this.message.set('El caso fue asignado a tu usuario.');this.load();});}
+  private readonly data=inject(DataService);private readonly route=inject(ActivatedRoute);readonly auth=inject(AuthService);readonly item=signal<ComplaintDetail|null>(null);readonly catalogs=signal<CatalogResponse|null>(null);readonly message=signal('');readonly messageIsError=signal(false);readonly error=signal('');readonly loading=signal(true);readonly actionPending=signal(false);statusId=1;analystId='';observation='';private id='';
+  constructor(){this.id=this.route.snapshot.paramMap.get('id')!;this.data.catalogs().subscribe({next:x=>this.catalogs.set(x),error:error=>this.messageError(apiErrorMessage(error,'No pudimos cargar las opciones de gestión.'))});this.load();}
+  load():void{this.loading.set(true);this.error.set('');this.data.complaint(this.id).subscribe({next:x=>{this.item.set(x);this.statusId=x.statusId;this.analystId=x.assigneeId||'';this.loading.set(false);},error:error=>{this.item.set(null);this.loading.set(false);this.error.set(apiErrorMessage(error,'No pudimos cargar el expediente.'));}});}
+  updateStatus():void{if(this.observation.trim().length<3||this.actionPending())return;this.beginAction();this.data.changeStatus(this.id,this.statusId,this.observation.trim()).subscribe({next:()=>{this.messageSuccess('Estado actualizado correctamente.');this.observation='';this.actionPending.set(false);this.load();},error:error=>this.finishActionWithError(error,'No pudimos actualizar el estado.')});}
+  assign():void{if(!this.analystId||this.actionPending())return;this.beginAction();this.data.assign(this.id,this.analystId,'Asignación desde el expediente').subscribe({next:()=>{this.messageSuccess('Responsable actualizado correctamente.');this.actionPending.set(false);this.load();},error:error=>this.finishActionWithError(error,'No pudimos asignar al responsable.')});}
+  take():void{if(this.actionPending())return;this.beginAction();this.data.take(this.id).subscribe({next:()=>{this.messageSuccess('El caso fue asignado a tu usuario.');this.actionPending.set(false);this.load();},error:error=>this.finishActionWithError(error,'No pudimos asignarte el caso.')});}
+  private beginAction():void{this.actionPending.set(true);this.message.set('');this.messageIsError.set(false);}
+  private finishActionWithError(error:unknown,fallback:string):void{this.actionPending.set(false);this.messageError(apiErrorMessage(error,fallback));}
+  private messageSuccess(value:string):void{this.messageIsError.set(false);this.message.set(value);}
+  private messageError(value:string):void{this.messageIsError.set(true);this.message.set(value);}
   ownerInitials(name:string|null):string{return(name||'SA').split(' ').slice(0,2).map(x=>x[0]).join('');}
   slaMessage(deadline:string,state:string):string{const minutes=Math.max(0,Math.floor(Math.abs(new Date(deadline).getTime()-Date.now())/60_000));const text=`${Math.floor(minutes/60)}h ${minutes%60}m`;return state==='Vencido'?`Vencido hace ${text}`:`Restan ${text}`;}
 }

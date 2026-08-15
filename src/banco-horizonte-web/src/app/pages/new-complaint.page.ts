@@ -5,6 +5,7 @@ import { AbstractControl, FormBuilder, ReactiveFormsModule, ValidationErrors, Va
 import { Router, RouterLink } from '@angular/router';
 import { DataService } from '../core/data.service';
 import { CatalogResponse, CreateComplaint, CreateComplaintResult } from '../core/models';
+import { apiErrorMessage } from '../core/api-error';
 
 @Component({
   imports: [ReactiveFormsModule, RouterLink, DatePipe],
@@ -65,7 +66,10 @@ export class NewComplaintPage {
   });
 
   constructor() {
-    this.data.catalogs().subscribe(x => this.catalogs.set(x));
+    this.data.catalogs().subscribe({
+      next: x => this.catalogs.set(x),
+      error: error => this.error.set(apiErrorMessage(error, 'No pudimos cargar las opciones del formulario.'))
+    });
     this.form.controls.categoryId.valueChanges.subscribe(() => this.form.controls.subcategoryId.setValue(null));
     this.form.controls.customer.controls.documentType.valueChanges.subscribe(() =>
       this.form.controls.customer.controls.documentNumber.updateValueAndValidity());
@@ -84,7 +88,7 @@ export class NewComplaintPage {
     const request = { ...raw, receivedAt: new Date(raw.receivedAt).toISOString() } as CreateComplaint;
     this.data.createComplaint(request).subscribe({
       next: result => { this.success.set(result); this.saving.set(false); },
-      error: (error: HttpErrorResponse) => { this.saving.set(false); if (error.status === 409) { this.duplicates.set(error.error?.possibleDuplicates ?? []); this.error.set(''); } else this.error.set(error.error?.detail ?? error.error?.message ?? 'No fue posible registrar el reclamo.'); }
+      error: (error: HttpErrorResponse) => { this.saving.set(false); if (error.status === 409) { this.duplicates.set(error.error?.possibleDuplicates ?? []); this.error.set(''); } else this.error.set(apiErrorMessage(error, 'No fue posible registrar el reclamo.')); }
     });
   }
   confirmDuplicate(): void { this.form.controls.confirmPossibleDuplicate.setValue(true); this.duplicates.set([]); this.submit(); }

@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: banco-horizonte-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health/ready
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: Supabase__Url
+        value: https://oigcjnymanhasdhrktpq.supabase.co
+      - key: ConnectionStrings__Supabase
+        sync: false
+      - key: Cors__AllowedOrigins
+        sync: false

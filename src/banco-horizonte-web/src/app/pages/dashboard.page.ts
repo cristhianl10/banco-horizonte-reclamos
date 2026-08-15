@@ -3,11 +3,16 @@ import { DatePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { DataService } from '../core/data.service';
 import { DashboardSummary } from '../core/models';
+import { AuthService } from '../core/auth.service';
+import { apiErrorMessage } from '../core/api-error';
 
 @Component({
   imports: [DatePipe, RouterLink],
   template: `
-    <header class="page-head"><div><p class="section-code">TABLERO / CONTROL OPERATIVO</p><h1>Buenos días, María.</h1><p>Esta es la situación de reclamos al {{ currentTime }}.</p></div><a class="action-button" routerLink="/reclamos/nuevo">＋ REGISTRAR RECLAMO</a></header>
+    <header class="page-head"><div><p class="section-code">TABLERO / CONTROL OPERATIVO</p><h1>Buenos días, {{ firstName }}.</h1><p>Esta es la situación de reclamos al {{ currentTime }}.</p></div><a class="action-button" routerLink="/reclamos/nuevo">＋ REGISTRAR RECLAMO</a></header>
+    @if (error()) {
+      <section class="feedback-panel" role="alert"><div><strong>No pudimos calcular los indicadores</strong><p>{{ error() }}</p></div><button type="button" (click)="load()">REINTENTAR</button></section>
+    }
     @if (summary(); as data) {
       <section class="metric-grid" aria-label="Indicadores principales">
         <article><span>CASOS ABIERTOS</span><strong>{{ data.open }}</strong><small>{{data.resolved}} resueltos de {{data.total}} registrados</small></article>
@@ -51,12 +56,25 @@ import { DashboardSummary } from '../core/models';
         </article>
         <article class="panel pulse-panel"><p class="section-code">ESTADO DEL SISTEMA</p><div class="pulse-ring"><span>{{ data.overdue }}</span></div><h2>Casos fuera de SLA</h2><p>Prioriza estos casos para recuperar el nivel de cumplimiento.</p><a routerLink="/reclamos" [queryParams]="{sla:'overdue'}">REVISAR VENCIDOS →</a></article>
       </section>
-    } @else { <div class="loading-state">Calculando indicadores operativos…</div> }
+    } @else if (loading()) { <div class="loading-state">Calculando indicadores operativos…</div> }
   `,
-  styleUrl: './dashboard.page.scss',
+  styleUrls: ['./dashboard.page.scss', './dashboard.production.scss'],
 })
 export class DashboardPage {
-  private readonly data = inject(DataService); readonly summary = signal<DashboardSummary | null>(null);
+  private readonly data = inject(DataService);
+  private readonly auth = inject(AuthService);
+  readonly summary = signal<DashboardSummary | null>(null);
+  readonly loading = signal(true);
+  readonly error = signal('');
   readonly currentTime = new Intl.DateTimeFormat('es-EC', { hour: '2-digit', minute: '2-digit' }).format(new Date());
-  constructor() { this.data.dashboard().subscribe(value => this.summary.set(value)); }
+  get firstName(): string { return this.auth.user()?.name.split(' ')[0] ?? 'equipo'; }
+  constructor() { this.load(); }
+  load(): void {
+    this.loading.set(true);
+    this.error.set('');
+    this.data.dashboard().subscribe({
+      next: value => { this.summary.set(value); this.loading.set(false); },
+      error: error => { this.summary.set(null); this.loading.set(false); this.error.set(apiErrorMessage(error, 'No pudimos cargar el tablero operativo.')); }
+    });
+  }
 }
