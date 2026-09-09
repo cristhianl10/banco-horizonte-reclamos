@@ -41,7 +41,7 @@ El `Dockerfile` ya usa una compilación multi-stage de .NET, ejecuta la aplicaci
 
 1. Importa el mismo repositorio en Vercel.
 2. Configura **Root Directory** como `src/banco-horizonte-web`.
-3. Vercel leerá `vercel.json`.
+3. Selecciona **Framework Preset: Angular**. Vercel leerá `vercel.json`, ejecutará `npm run build` y publicará `dist/banco-horizonte-web`. Esta carpeta contiene directamente `index.html`, porque `angular.json` configura `outputPath.browser` como una cadena vacía. No uses la raíz del repositorio ni agregues `/browser` al directorio de salida.
 4. Configura estas variables públicas:
 
 | Variable | Valor |
@@ -52,6 +52,8 @@ El `Dockerfile` ya usa una compilación multi-stage de .NET, ejecuta la aplicaci
 | `BH_SUPABASE_PUBLISHABLE_KEY` | Publishable key de Supabase |
 
 `npm run build` genera `public/config.js` durante el despliegue. El archivo es ignorado por Git y permite separar los valores locales de los productivos.
+
+Si el proyecto ya se importó con otra configuración, corrige **Settings → Build and Deployment → Root Directory** a `src/banco-horizonte-web` y vuelve a desplegar. Un despliegue marcado como listo puede devolver 404 si publicó la raíz del monorepo sin compilar Angular.
 
 ## 4. Cerrar la configuración cruzada
 

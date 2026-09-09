@@ -43,6 +43,10 @@
         "build": {
           "builder": "@angular/build:application",
           "options": {
+            "outputPath": {
+              "base": "dist/banco-horizonte-web",
+              "browser": ""
+            },
             "browser": "src/main.ts",
             "polyfills": [
               "zone.js"
