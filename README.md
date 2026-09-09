@@ -67,4 +67,4 @@ Consulta [docs/05-configuracion-supabase.md](docs/05-configuracion-supabase.md) 
 
 ## Despliegue
 
-El monorepo está preparado para publicar Angular en Vercel, ejecutar la API .NET con el Dockerfile de la raíz en Aiven Runtime y conservar Auth/PostgreSQL en Supabase. Sigue la guía [docs/07-despliegue.md](docs/07-despliegue.md).
+El monorepo está preparado para publicar Angular en Vercel, ejecutar la API .NET con el Dockerfile de la raíz en Render y conservar Auth/PostgreSQL en Supabase. Sigue la guía [docs/07-despliegue.md](docs/07-despliegue.md).
