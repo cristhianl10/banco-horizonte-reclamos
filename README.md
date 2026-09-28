@@ -1,60 +1,41 @@
-# Banco Horizonte — Gestión de reclamos
+# Banco Horizonte — Claims Management
 
-Proyecto académico full stack para centralizar reclamos bancarios, calcular automáticamente su prioridad y SLA, asignar responsables y ofrecer trazabilidad e indicadores operativos.
+Banco Horizonte is a full-stack academic application for centralizing bank claims, calculating priority and SLA automatically, assigning analysts, and providing operational traceability and dashboards.
 
 ## Stack
 
-- ASP.NET Core Web API (.NET 10)
+- ASP.NET Core Web API on .NET 10
 - Angular
-- PostgreSQL y autenticación de Supabase
-- Entity Framework Core + Npgsql
-- xUnit y Jasmine/Karma
+- PostgreSQL and Supabase Authentication
+- Entity Framework Core and Npgsql
+- xUnit and Jasmine/Karma
 
-## Alcance implementado
+## Implemented scope
 
-- Registro validado de clientes y reclamos con detección de posibles duplicados.
-- Cinco reglas acumulativas de prioridad, sin selección subjetiva del operador.
-- SLA de 24, 12, 6 o 2 horas y alerta cuando se consume el 75 %.
-- Bandeja con búsqueda y filtros operativos.
-- Asignación, reasignación y toma de casos.
-- Flujo `Nuevo → En análisis → Resuelto/Rechazado` con observación e historial.
-- Tablero de totales, riesgo SLA, distribuciones y carga por analista.
-- Autenticación Supabase, autorización por roles y mensajes de error orientados al usuario.
-- Diez reclamos sintéticos para demostración.
+- Validated customer and claim registration with possible-duplicate detection.
+- Five cumulative, deterministic priority rules.
+- SLA tiers of 24, 12, 6, or 2 hours, with an alert at 75%.
+- Searchable operational queue, assignment, reassignment, and analyst self-assignment.
+- Workflow `New → In analysis → Resolved/Rejected`, with required observations and history.
+- Dashboard for totals, SLA risk, distributions, and analyst workload.
+- Supabase authentication, role-based authorization, and ten synthetic demo claims.
 
-El análisis completo está en [docs/01-analisis-funcional.md](docs/01-analisis-funcional.md).
+See [docs/01-analisis-funcional.md](docs/01-analisis-funcional.md).
 
-## Ejecutar localmente
-
-Desde la raíz, inicia la API:
+## Run locally
 
 ```powershell
 dotnet run --project .\src\BancoHorizonte.Api
-```
-
-En otra terminal, inicia Angular:
-
-```powershell
 cd .\src\banco-horizonte-web
 npm install
 npm start
 ```
 
-Abre `http://localhost:4200`. La API utiliza `http://localhost:5207` en el perfil local.
+Open `http://localhost:4200`; the local API uses `http://localhost:5207`.
 
-## Base de datos
+For a new database run [database/schema.sql](database/schema.sql). For an existing database run the requirements migration and [database/demo-data.sql](database/demo-data.sql). Both are idempotent and demo data is fictional.
 
-- Instalación nueva: ejecuta [database/schema.sql](database/schema.sql) en Supabase SQL Editor.
-- Proyecto existente: ejecuta [database/migrations/001_align_finresolve_requirements.sql](database/migrations/001_align_finresolve_requirements.sql) y luego [database/demo-data.sql](database/demo-data.sql).
-- Alternativa desde la raíz, con los secretos ya configurados:
-
-```powershell
-dotnet run --project .\src\BancoHorizonte.Api -- --apply-requirements-database
-```
-
-Los scripts son idempotentes y los datos demo son ficticios.
-
-## Verificación
+## Verification
 
 ```powershell
 dotnet test BancoHorizonte.slnx -c Release
@@ -63,8 +44,12 @@ npm test -- --watch=false
 npm run build
 ```
 
-Consulta [docs/05-configuracion-supabase.md](docs/05-configuracion-supabase.md) para la configuración y [docs/06-pruebas.md](docs/06-pruebas.md) para la estrategia de pruebas.
+Recorded verification: ASP.NET Release build passed, Angular production build passed, 8 Angular tests passed, and Supabase migration/demo/health checks passed. The xUnit assembly compiled, but Windows Application Control (`0x800711C7`) blocked the runner on the original workstation.
 
-## Despliegue
+## Deployment
 
-El monorepo está preparado para publicar Angular en Vercel, ejecutar la API .NET con el Dockerfile de la raíz en Render y conservar Auth/PostgreSQL en Supabase. Sigue la guía [docs/07-despliegue.md](docs/07-despliegue.md).
+- Frontend: [banco-horizonte-reclamos.vercel.app](https://banco-horizonte-reclamos.vercel.app)
+- API: [banco-horizonte-api.onrender.com](https://banco-horizonte-api.onrender.com)
+- Auth and PostgreSQL: Supabase
+
+See [docs/07-despliegue.md](docs/07-despliegue.md). The Docker runtime includes the native GSSAPI dependency required by the Supabase PostgreSQL connection.
