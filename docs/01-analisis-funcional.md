@@ -1,53 +1,99 @@
-# Functional Analysis — Banco Horizonte
+# Análisis funcional — Banco Horizonte
 
-## Problem and objective
+## Problema
 
-Claims arrive through email, calls, forms, and independent spreadsheets. Information is fragmented, prioritization is subjective, SLA breaches are hard to detect, and supervisors lack reliable indicators. The application centralizes registration, automatic prioritization, assignment, resolution, audit, and supervision.
+Banco Horizonte recibe reclamos por correo, llamadas, formularios y hojas de cálculo independientes. El problema no es solo el volumen: la información está fragmentada y no existe un criterio común para decidir qué atender primero.
 
-## Roles
+Esto provoca reclamos duplicados o sin responsable, prioridades subjetivas, incumplimientos de SLA, poca trazabilidad y ausencia de indicadores para supervisión.
 
-| Role | Responsibilities |
-|---|---|
-| Operator | Register claims and review calculated code, score, priority, and SLA. |
-| Analyst | View details, take unassigned cases, change status, and add observations. |
-| Supervisor | Review queues, alerts, indicators, assignment, and reassignment. |
+## Objetivo
 
-Supabase authentication is implemented. Public registration assigns `Operator`; other roles use the administrative script.
+Centralizar el ciclo completo del reclamo en una aplicación web que permita registrar, priorizar automáticamente, asignar, atender, auditar y supervisar casos.
 
-## Workflow
+El tablero debe responder en segundos:
 
-1. Record customer, channel, category, subcategory, description, optional amount, reception date, and digital availability.
-2. Search for recent possible duplicates.
-3. Generate a unique code and calculate score, priority, SLA, 75% alert, and deadline.
-4. Assign or reassign an analyst.
-5. Move `New` to `In analysis` with a required observation.
-6. Finish as `Resolved` or `Rejected`; cases cannot be reopened.
-7. Record creation, assignment, observations, recalculation, and status changes in history.
-8. Recalculate risk in queue, detail, and dashboard views.
+- cuáles reclamos consumieron al menos el 75 % de su SLA o ya vencieron;
+- quién atiende cada caso y en qué estado está;
+- qué reclamos requieren atención inmediata por prioridad crítica o riesgo SLA.
 
-## Automatic prioritization
+## Usuarios y responsabilidades
 
-Rules are cumulative:
+| Perfil | Responsabilidad | Acciones del MVP |
+|---|---|---|
+| Operador | Registrar correctamente el reclamo recibido. | Crear el caso y revisar código, puntaje, prioridad y SLA calculados. |
+| Analista | Atender casos y mantener trazabilidad. | Ver detalle, asumir casos sin responsable, cambiar estado y registrar observaciones. |
+| Supervisor | Controlar riesgo operativo y avance. | Consultar todos los casos, filtrar, revisar alertas e indicadores y asignar o reasignar responsables. |
 
-| Condition | Points |
+La autenticación con Supabase y el rol técnico `Administrador` son extensiones del prototipo. El registro público asigna `Operador`; los demás roles se otorgan mediante el script administrativo existente.
+
+## Flujo transaccional
+
+1. El operador identifica al cliente y registra canal, categoría, subcategoría, descripción, monto opcional, fecha de recepción e indisponibilidad digital.
+2. El sistema busca posibles duplicados recientes del mismo cliente y categoría.
+3. Al confirmar, genera un código único y calcula puntaje, prioridad, SLA, alerta al 75 % y fecha límite.
+4. El supervisor asigna o reasigna un analista; la asignación no cambia el estado.
+5. Un analista también puede asumir un caso sin responsable.
+6. El analista cambia `Nuevo` a `En análisis` y registra una observación obligatoria.
+7. Desde `En análisis`, el caso termina como `Resuelto` o `Rechazado`; no se reabre.
+8. Cada creación, asignación, observación, recálculo y cambio de estado queda en el historial.
+9. El tablero recalcula el riesgo y muestra casos próximos, vencidos y críticos.
+
+## Priorización automática (RF-02)
+
+Las reglas son acumulativas y parten de cero:
+
+| Condición verificable | Puntos |
 |---|---:|
-| Unrecognized transaction or purchase | +4 |
-| Uncredited transfer or blocked access/channel | +3 |
-| Amount at least USD 500 | +3 |
-| Digital channel completely unavailable | +2 |
-| Claim open more than 24 hours | +2 |
+| Transacción o compra no reconocida | +4 |
+| Transferencia no acreditada o acceso/canal bloqueado | +3 |
+| Monto afectado igual o superior a USD 500 | +3 |
+| Canal digital completamente indisponible | +2 |
+| Reclamo abierto por más de 24 horas | +2 |
 
-| Score | Priority | SLA |
+| Puntaje | Prioridad | SLA |
 |---:|---|---:|
-| 0–2 | Low | 24 hours |
-| 3–4 | Medium | 12 hours |
-| 5–6 | High | 6 hours |
-| 7+ | Critical | 2 hours |
+| 0–2 | Baja | 24 horas |
+| 3–4 | Media | 12 horas |
+| 5–6 | Alta | 6 horas |
+| 7 o más | Crítica | 2 horas |
 
-`sla_deadline = reception_date + SLA hours`; the alert date is at 75% of the SLA. Valid transitions are `New → In analysis → Resolved/Rejected`, plus `New → Rejected`. Every status change requires an observation, timestamp, and actor.
+La API conserva el desglose de reglas aplicado. El operador nunca elige impacto, urgencia ni prioridad.
 
-## Functional traceability
+## SLA
 
-RF-01 registration and validation; RF-02 automatic score/priority/SLA; RF-03 queue search and filters; RF-04 case detail and history; RF-05 assignment; RF-06 controlled transitions; RF-07 dashboard; RF-08 SLA alerts; RF-09 user-oriented errors; RF-10 idempotent synthetic demo data.
+- `fecha_limite_sla = fecha_recepcion + horas_sla`.
+- `fecha_alerta_sla = fecha_recepcion + 75 % del SLA`.
+- `En tiempo`: todavía no alcanza la alerta.
+- `Próximo`: alcanzó el 75 %, sigue abierto y aún no vence.
+- `Vencido`: sigue abierto y la fecha límite ya pasó.
+- Los casos abiertos por más de 24 horas se repriorizan al consultar bandeja, detalle o tablero.
 
-The implementation uses Angular and PostgreSQL/Supabase with ASP.NET Core as the only business-data access layer. The browser uses Supabase for authentication only.
+## Estados permitidos
+
+| Origen | Destinos válidos |
+|---|---|
+| Nuevo | En análisis, Rechazado |
+| En análisis | Resuelto, Rechazado |
+| Resuelto | — |
+| Rechazado | — |
+
+Todo cambio de estado exige observación, fecha y actor.
+
+## Requisitos funcionales trazados
+
+| ID | Cumplimiento |
+|---|---|
+| RF-01 | Registro con cliente ficticio, canal, categoría, descripción, monto y fecha; código único y validaciones. |
+| RF-02 | Puntaje, prioridad y SLA automáticos mediante las reglas exactas del reto. |
+| RF-03 | Bandeja con búsqueda y filtros por estado, prioridad, categoría, canal, responsable y SLA. |
+| RF-04 | Expediente con todos los datos, responsable, tiempo SLA, reglas aplicadas y trazabilidad. |
+| RF-05 | Asignación y reasignación de analista con historial. |
+| RF-06 | Estados mínimos y transiciones controladas con observación obligatoria. |
+| RF-07 | Tablero con totales, abiertos, resueltos, próximos, vencidos y distribuciones. |
+| RF-08 | Alertas visuales calculadas con fechas reales y umbral del 75 %. |
+| RF-09 | Errores de validación y negocio expresados en lenguaje entendible. |
+| RF-10 | Script idempotente con diez reclamos y clientes sintéticos. |
+
+## Adaptaciones tecnológicas acordadas
+
+El documento sugería React y MySQL. Este portafolio usa Angular y PostgreSQL/Supabase por decisión del proyecto, conservando el comportamiento funcional. ASP.NET Core es el único acceso de negocio a las tablas; el navegador utiliza Supabase únicamente para autenticación.
