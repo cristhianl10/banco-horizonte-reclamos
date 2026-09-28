@@ -1,6 +1,6 @@
-# Estrategia de pruebas
+# Test Strategy and Verification
 
-## Comandos
+## Commands
 
 ```powershell
 dotnet test BancoHorizonte.slnx -c Release
@@ -9,46 +9,20 @@ npm test -- --watch=false
 npm run build
 ```
 
-## Backend
+## Backend scenarios
 
-### Prioridad y SLA
+Test each priority rule independently and cumulatively; all score thresholds; the 24-hour age rule; invalid amounts and future dates; the 75% alert; `In time`, `Upcoming`, and `Overdue`; customer normalization; duplicate detection; catalog consistency; valid/invalid status transitions; no reopening; required observations; assignment/reassignment; role checks; and identity, phone, email, description, catalog, and amount validation.
 
-- Cada una de las cinco reglas por separado.
-- Suma de varias condiciones, incluido el caso crítico de compra no reconocida por USD 780.
-- Umbrales Baja, Media, Alta y Crítica con SLA de 24, 12, 6 y 2 horas.
-- Regla de antigüedad solo para reclamos abiertos por más de 24 horas.
-- Monto negativo y recepción futura rechazados.
-- Alerta exactamente al 75 % del plazo.
-- Estados `En tiempo`, `Próximo` y `Vencido`.
+## Frontend scenarios
 
-### Flujo de reclamos
+Test initial invalid form state, customer/contact/description/amount validation, valid registration without subjective impact fields, understandable sign-in/registration errors, and password visibility.
 
-- Normalización de cliente y generación de código.
-- Posible duplicado, confirmación y ausencia de penalizaciones no definidas por el reto.
-- Categoría/subcategoría coherentes.
-- Recálculo por antigüedad sin duplicar eventos.
-- Transiciones válidas, saltos inválidos y prohibición de reapertura.
-- Observación obligatoria al cambiar estado.
-- Asignación y reasignación sin modificar el estado.
-- Rechazo de responsables sin rol de Analista o Supervisor.
+## Recorded verification status
 
-### Contratos
+- ASP.NET Core Release build: passed.
+- Angular production build: passed.
+- Angular tests: 8 passed.
+- Supabase migration, demo data, and `ready/connected` health check: passed.
+- xUnit assembly: compiled successfully, but Windows Application Control blocked the runner with `0x800711C7` on the original workstation. Run it in an unrestricted .NET environment for a final result.
 
-- Cédula y teléfono de 10 dígitos exactos.
-- RUC de 13 dígitos y pasaporte alfanumérico.
-- Correo válido, descripción mínima, identificadores de catálogo y monto no negativo.
-
-## Frontend
-
-- Formulario inicialmente inválido.
-- Validaciones de cliente, contacto, descripción y monto.
-- Formulario válido sin campos subjetivos de impacto o urgencia.
-- Registro y acceso con mensajes comprensibles y control para mostrar/ocultar contraseña.
-
-## Resultado de la verificación actual
-
-- Compilación ASP.NET Core Release: correcta.
-- Compilación Angular de producción: correcta.
-- Angular: 8 pruebas correctas.
-- Supabase: migración ejecutada, diez casos demo cargados y health check `ready/connected` correcto.
-- El runner xUnit fue bloqueado por la política Windows Application Control del equipo (`0x800711C7`) después de compilar correctamente el proyecto de pruebas. Los casos quedan compilados y listos para ejecutarse en un entorno sin esa restricción.
+This records verified results and does not claim a blocked test was executed.
